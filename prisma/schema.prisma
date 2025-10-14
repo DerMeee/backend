@@ -1,0 +1,291 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum AppointmentState {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderState {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BARIDIMOB
+  CIB
+  CASH
+}
+
+enum WeekDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// ------------------- USER & ADDRESS -------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phoneNumber  String?
+  passwordHash String
+  role         UserRole @default(PATIENT)
+  addressId    String?  @unique
+  address      Address? @relation(fields: [addressId], references: [id])
+
+  doctorProfile Doctor?
+  patientProfile Patient?
+
+  notifications Notification[]
+  chats         ChatParticipant[]
+  messages      Message[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Address {
+  id          String   @id @default(cuid())
+  street      String
+  city        String
+  state       String
+  postalCode  String
+  country     String
+  validated   Boolean  @default(false)
+
+  user        User?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ------------------- DOCTOR / PATIENT -------------------
+
+model Doctor {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id])
+  fees        Float
+  workYears   Int
+  about       String?
+
+  workDays    WorkDay[]
+  appointments Appointment[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Patient {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+
+  appointments Appointment[]
+  cart         Cart?
+  orders       Order[]
+  wishlist     Wishlist[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ------------------- APPOINTMENTS -------------------
+
+model Appointment {
+  id          String             @id @default(cuid())
+  doctorId    String
+  patientId   String
+  type        String
+  state       AppointmentState   @default(SCHEDULED)
+  startAt     DateTime
+  endAt       DateTime
+
+  doctor      Doctor   @relation(fields: [doctorId], references: [id])
+  patient     Patient  @relation(fields: [patientId], references: [id])
+  report      AppointmentReport?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Business rule (not DB-enforced):
+  /// Only a Patient can create an Appointment.
+}
+
+model AppointmentReport {
+  id             String       @id @default(cuid())
+  appointmentId  String       @unique
+  description    String
+  type           String
+  appointment    Appointment  @relation(fields: [appointmentId], references: [id])
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// ------------------- WORKDAY -------------------
+
+model WorkDay {
+  id        String   @id @default(cuid())
+  doctorId  String
+  day       WeekDay
+  startTime DateTime
+  endTime   DateTime
+
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+
+  @@unique([doctorId, day])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------- CHAT & MESSAGES -------------------
+
+model Chat {
+  id           String             @id @default(cuid())
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  participants ChatParticipant[]
+  messages     Message[]
+}
+
+model ChatParticipant {
+  id       String   @id @default(cuid())
+  userId   String
+  chatId   String
+  user     User     @relation(fields: [userId], references: [id])
+  chat     Chat     @relation(fields: [chatId], references: [id])
+  joinedAt DateTime @default(now())
+  lastReadAt DateTime?
+
+  @@unique([userId, chatId])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  chatId     String
+  authorId   String
+  content    String
+  timestamp  DateTime @default(now())
+
+  chat       Chat     @relation(fields: [chatId], references: [id])
+  author     User     @relation(fields: [authorId], references: [id])
+}
+
+// ------------------- NOTIFICATIONS -------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  content   String
+  read      Boolean  @default(false)
+
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ------------------- PRODUCTS / E-COMMERCE -------------------
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?
+
+  cartItems   CartItem[]
+  wishlist    Wishlist[]
+  orderItems  OrderItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Cart {
+  id        String   @id @default(cuid())
+  patientId String   @unique
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  items     CartItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CartItem {
+  id         String   @id @default(cuid())
+  cartId     String
+  productId  String
+  quantity   Int      @default(1)
+
+  cart       Cart     @relation(fields: [cartId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+model Wishlist {
+  id         String   @id @default(cuid())
+  patientId  String
+  productId  String
+
+  patient    Patient  @relation(fields: [patientId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@unique([patientId, productId])
+}
+
+// ------------------- ORDERS -------------------
+
+model Order {
+  id          String        @id @default(cuid())
+  patientId   String
+  payMethod   PaymentMethod
+  state       OrderState    @default(PENDING)
+
+  patient     Patient       @relation(fields: [patientId], references: [id])
+  items       OrderItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  productId   String
+  productName String
+  unitPrice   Float
+  quantity    Int
+
+  order       Order    @relation(fields: [orderId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+}
