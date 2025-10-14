@@ -34,49 +34,34 @@ describe('AuthController', () => {
   });
 
   describe('login', () => {
-    it('should return user and accessToken and set refresh_token cookie', async () => {
+    it('should return user, accessToken and refreshToken', async () => {
       console.log('🧪 Test: Starting login test - success case');
 
 
-      const dto = { username: 'john.doe', password: 'secret12' };
-      const user = { ID: 1, UserName: 'john.doe' } as any;
+      const dto = { email: 'john.doe@example.com', password: 'secret12' };
+      const user = { id: 'u_1', email: 'john.doe@example.com' } as any;
       const accessToken = 'access.token';
       const refreshToken = 'refresh.token';
 
       console.log('📞 Mocking authService.login to return success');
       authService.login.mockResolvedValue({ user, accessToken, refreshToken });
 
-      console.log('📨 Preparing mock response object', user, accessToken, refreshToken);
-      const cookie = jest.fn();
-      const res: any = { cookie };
-
       console.log('🚀 Calling controller.login()');
-      const result = await controller.login(dto as any, res);
+      const result = await controller.login(dto as any);
 
       console.log('✅ Verifying expectations...');
       expect(authService.login).toHaveBeenCalledWith(dto);
-      expect(result).toEqual({ user, accessToken });
-
-      expect(cookie).toHaveBeenCalledWith(
-        'refresh_token',
-        refreshToken,
-        expect.objectContaining({
-          httpOnly: false,
-          sameSite: 'lax',
-          path: '/',
-        }),
-      );
+      expect(result).toEqual({ user, accessToken, refreshToken });
     });
 
     describe('refreshToken', () => {
-      it('should read cookie, call service, and return new accessToken', async () => {
-        const req: any = { cookies: { refresh_token: 'valid.token' } };
-        const res: any = { cookie: jest.fn() };
-  
+      it('should read token from body and return new accessToken', async () => {
+        const body: any = { refreshToken: 'valid.token' };
+
         jest.spyOn(authService, 'refreshToken').mockResolvedValue({ accessToken: 'new.access' });
-  
-        const result = await controller.refreshToken(req, res);
-  
+
+        const result = await controller.refreshToken(body);
+
         expect(authService.refreshToken).toHaveBeenCalledWith('valid.token');
         expect(result).toEqual({ accessToken: 'new.access' });
       });
@@ -84,26 +69,23 @@ describe('AuthController', () => {
 
     describe('profile', () => {
       it('should return user profile based on CurrentUser', async () => {
-        const user: any = { username: 'john.doe' };
-        const userProfile = { ID: 1, UserName: 'john.doe', TYPE: 1 } as any;
+        const user: any = { userId: 'u_1' };
+        const userProfile = { id: 'u_1', email: 'john.doe@example.com', role: 'PATIENT' } as any;
 
         jest.spyOn(authService, 'getUserById').mockResolvedValue(userProfile);
 
         const result = await controller.getProfile(user);
 
-        expect(authService.getUserById).toHaveBeenCalledWith('john.doe');
+        expect(authService.getUserById).toHaveBeenCalledWith('u_1');
         expect(result).toEqual(userProfile);
       });
     });
 
     it('should rethrow service errors (e.g., UnauthorizedException)', async () => {
-      const dto = { username: 'bad.user', password: 'wrong' };
+      const dto = { email: 'bad.user@example.com', password: 'wrong' };
       authService.login.mockRejectedValue(new UnauthorizedException('Invalid credentials'));
 
-      const res: any = { cookie: jest.fn() };
-
-      await expect(controller.login(dto as any, res)).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(res.cookie).not.toHaveBeenCalled();
+      await expect(controller.login(dto as any)).rejects.toBeInstanceOf(UnauthorizedException);
     });
     console.log('🎉 Test completed successfully');
   });
