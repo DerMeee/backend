@@ -10,8 +10,13 @@ import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { GetAppointmentsQueryDto } from './dto/get-appointments-query.dto';
 import { DoctorAppointmentDto } from './dto/doctor-appointment.dto';
 import { PatientAppointmentDto } from './dto/patient-appointment.dto';
+import { ApproveAppointmentDto } from './dto/approve-appointment.dto';
+import { RejectAppointmentDto } from './dto/reject-appointment.dto';
+import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
+import { AppointmentResponseDto } from './dto/appointment-response.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
+import { AppointmentState, WeekDay } from '@prisma/client';
 
 @Injectable()
 export class AppointmentService {
@@ -338,5 +343,522 @@ export class AppointmentService {
 
     await this.prisma.appointment.delete({ where: { id } });
     return { success: true, message: 'Appointment cancelled successfully' };
+  }
+
+  async approveAppointment(
+    appointmentId: string,
+    doctorUserId: string,
+    approveDto: ApproveAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    try {
+      // First, verify the doctor exists and get their ID
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { userId: doctorUserId },
+        select: { id: true },
+      });
+
+      if (!doctor) {
+        throw new NotFoundException('Doctor not found');
+      }
+
+      // Get the appointment and verify it belongs to this doctor
+      const appointment = await this.prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          doctor: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+      }
+
+      if (appointment.doctorId !== doctor.id) {
+        throw new ForbiddenException('You can only approve your own appointments');
+      }
+
+      if (appointment.state !== AppointmentState.PENDING) {
+        throw new BadRequestException(
+          `Cannot approve appointment in ${appointment.state} state`,
+        );
+      }
+
+      // Check if the requested time is still available
+      const isTimeAvailable = await this.isTimeSlotAvailable(
+        appointment.doctorId,
+        appointment.startAt,
+        appointment.endAt,
+        appointmentId, // Exclude current appointment from conflict check
+      );
+
+      if (!isTimeAvailable) {
+        throw new BadRequestException(
+          'The requested time slot is no longer available',
+        );
+      }
+
+      // Update the appointment state to CONFIRMED
+      const updatedAppointment = await this.prisma.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          state: AppointmentState.CONFIRMED,
+        },
+        include: {
+          doctor: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      // TODO: Send notification to patient about approval
+      // This could be implemented with a notification service
+      if (approveDto.message) {
+        // Store the approval message or send notification
+        console.log(`Approval message for appointment ${appointmentId}: ${approveDto.message}`);
+      }
+
+      return {
+        id: updatedAppointment.id,
+        doctorId: updatedAppointment.doctorId,
+        patientId: updatedAppointment.patientId,
+        type: updatedAppointment.type,
+        state: updatedAppointment.state,
+        startAt: updatedAppointment.startAt,
+        endAt: updatedAppointment.endAt,
+        createdAt: updatedAppointment.createdAt,
+        updatedAt: updatedAppointment.updatedAt,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Failed to approve appointment',
+      );
+    }
+  }
+
+  async rejectAppointment(
+    appointmentId: string,
+    doctorUserId: string,
+    rejectDto: RejectAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    try {
+      // First, verify the doctor exists and get their ID
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { userId: doctorUserId },
+        select: { id: true },
+      });
+
+      if (!doctor) {
+        throw new NotFoundException('Doctor not found');
+      }
+
+      // Get the appointment and verify it belongs to this doctor
+      const appointment = await this.prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          doctor: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+      }
+
+      if (appointment.doctorId !== doctor.id) {
+        throw new ForbiddenException('You can only reject your own appointments');
+      }
+
+      if (appointment.state !== AppointmentState.PENDING) {
+        throw new BadRequestException(
+          `Cannot reject appointment in ${appointment.state} state`,
+        );
+      }
+
+      // Update the appointment state to CANCELLED
+      const updatedAppointment = await this.prisma.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          state: AppointmentState.CANCELLED,
+        },
+        include: {
+          doctor: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      // TODO: Send notification to patient about rejection with reason
+      // This could be implemented with a notification service
+      console.log(`Rejection reason for appointment ${appointmentId}: ${rejectDto.reason}`);
+
+      return {
+        id: updatedAppointment.id,
+        doctorId: updatedAppointment.doctorId,
+        patientId: updatedAppointment.patientId,
+        type: updatedAppointment.type,
+        state: updatedAppointment.state,
+        startAt: updatedAppointment.startAt,
+        endAt: updatedAppointment.endAt,
+        createdAt: updatedAppointment.createdAt,
+        updatedAt: updatedAppointment.updatedAt,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Failed to reject appointment',
+      );
+    }
+  }
+
+  private async isTimeSlotAvailable(
+    doctorId: string,
+    startAt: Date,
+    endAt: Date,
+    excludeAppointmentId?: string,
+  ): Promise<boolean> {
+    try {
+      // Check for conflicting appointments
+      const conflictingAppointment = await this.prisma.appointment.findFirst({
+        where: {
+          doctorId,
+          id: excludeAppointmentId ? { not: excludeAppointmentId } : undefined,
+          state: {
+            in: [AppointmentState.SCHEDULED, AppointmentState.CONFIRMED],
+          },
+          OR: [
+            // New appointment starts during existing appointment
+            {
+              AND: [
+                { startAt: { lte: startAt } },
+                { endAt: { gt: startAt } },
+              ],
+            },
+            // New appointment ends during existing appointment
+            {
+              AND: [
+                { startAt: { lt: endAt } },
+                { endAt: { gte: endAt } },
+              ],
+            },
+            // New appointment completely contains existing appointment
+            {
+              AND: [
+                { startAt: { gte: startAt } },
+                { endAt: { lte: endAt } },
+              ],
+            },
+          ],
+        },
+      });
+
+      if (conflictingAppointment) {
+        return false;
+      }
+
+      // Check if the time falls within doctor's work hours
+      const workDay = await this.prisma.workDay.findFirst({
+        where: {
+          doctorId,
+          day: this.getDayOfWeek(startAt) as WeekDay,
+        },
+      });
+
+      if (!workDay) {
+        return false; // Doctor doesn't work on this day
+      }
+
+      const appointmentStartTime = this.getTimeFromDate(startAt);
+      const appointmentEndTime = this.getTimeFromDate(endAt);
+      const workStartTime = this.getTimeFromDate(workDay.startTime);
+      const workEndTime = this.getTimeFromDate(workDay.endTime);
+
+      // Check if appointment is within work hours
+      if (appointmentStartTime < workStartTime || appointmentEndTime > workEndTime) {
+        return false;
+      }
+
+      // Check for schedule exceptions (holidays, leaves, etc.)
+      const scheduleException = await this.prisma.scheduleException.findFirst({
+        where: {
+          doctorId,
+          date: {
+            gte: new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate()),
+            lt: new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate() + 1),
+          },
+        },
+      });
+
+      if (scheduleException) {
+        return false; // Time falls within a schedule exception
+      }
+
+      // Check for doctor leaves
+      const doctorLeave = await this.prisma.doctorLeave.findFirst({
+        where: {
+          doctorId,
+          startDate: { lte: startAt },
+          endDate: { gte: endAt },
+        },
+      });
+
+      if (doctorLeave) {
+        return false; // Doctor is on leave during this time
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error checking time slot availability:', error);
+      return false;
+    }
+  }
+
+  private getDayOfWeek(date: Date): string {
+    const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    return days[date.getDay()];
+  }
+
+  private getTimeFromDate(date: Date): number {
+    return date.getHours() * 100 + date.getMinutes();
+  }
+
+  async rescheduleAppointment(
+    appointmentId: string,
+    doctorUserId: string,
+    rescheduleDto: RescheduleAppointmentDto,
+  ): Promise<AppointmentResponseDto> {
+    try {
+      // First, verify the doctor exists and get their ID
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { userId: doctorUserId },
+        select: { id: true },
+      });
+
+      if (!doctor) {
+        throw new NotFoundException('Doctor not found');
+      }
+
+      // Get the appointment and verify it belongs to this doctor
+      const appointment = await this.prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          doctor: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+      }
+
+      if (appointment.doctorId !== doctor.id) {
+        throw new ForbiddenException('You can only reschedule your own appointments');
+      }
+
+      if (appointment.state === AppointmentState.CANCELLED) {
+        throw new BadRequestException('Cannot reschedule a cancelled appointment');
+      }
+
+      // Parse and validate the new date and times
+      const { newDate, newStart, newEnd, reason } = rescheduleDto;
+      
+      // Parse new start time
+      const [startHoursStr, startMinutesStr] = newStart.split(':');
+      const startHours = Number(startHoursStr);
+      const startMinutes = Number(startMinutesStr);
+      
+      if (Number.isNaN(startHours) || Number.isNaN(startMinutes)) {
+        throw new BadRequestException('Invalid start time format, expected HH:mm');
+      }
+
+      // Parse new end time
+      const [endHoursStr, endMinutesStr] = newEnd.split(':');
+      const endHours = Number(endHoursStr);
+      const endMinutes = Number(endMinutesStr);
+      
+      if (Number.isNaN(endHours) || Number.isNaN(endMinutes)) {
+        throw new BadRequestException('Invalid end time format, expected HH:mm');
+      }
+
+      // Create new start and end dates
+      const newStartAt = new Date(newDate);
+      newStartAt.setHours(startHours, startMinutes, 0, 0);
+      
+      const newEndAt = new Date(newDate);
+      newEndAt.setHours(endHours, endMinutes, 0, 0);
+
+      // Validate that end time is after start time
+      if (newEndAt <= newStartAt) {
+        throw new BadRequestException('End time must be after start time');
+      }
+
+      // Validate that the new date is not in the past
+      if (newStartAt < new Date()) {
+        throw new BadRequestException('Cannot reschedule to a past date');
+      }
+
+      // Check if the new time slot is available
+      const isTimeAvailable = await this.isTimeSlotAvailable(
+        appointment.doctorId,
+        newStartAt,
+        newEndAt,
+        appointmentId, // Exclude current appointment from conflict check
+      );
+
+      if (!isTimeAvailable) {
+        throw new BadRequestException(
+          'The requested time slot is no longer available',
+        );
+      }
+
+      // Check if the new time falls within standard working hours
+      const isWithinStandardHours = await this.isWithinStandardWorkingHours(
+        appointment.doctorId,
+        newStartAt,
+        newEndAt,
+      );
+
+      // If not within standard hours, create a schedule exception
+      if (!isWithinStandardHours) {
+        await this.createScheduleException(
+          appointment.doctorId,
+          newStartAt,
+          newEndAt,
+          reason || 'Appointment rescheduled outside standard hours',
+        );
+      }
+
+      // Update the appointment with new times
+      const updatedAppointment = await this.prisma.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          startAt: newStartAt,
+          endAt: newEndAt,
+          // If appointment was pending, keep it pending; if confirmed, keep confirmed
+          state: appointment.state === AppointmentState.PENDING 
+            ? AppointmentState.PENDING 
+            : AppointmentState.CONFIRMED,
+        },
+        include: {
+          doctor: true,
+          patient: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      // TODO: Send notification to patient about rescheduling
+      console.log(`Appointment ${appointmentId} rescheduled to ${newStartAt.toISOString()}`);
+
+      return {
+        id: updatedAppointment.id,
+        doctorId: updatedAppointment.doctorId,
+        patientId: updatedAppointment.patientId,
+        type: updatedAppointment.type,
+        state: updatedAppointment.state,
+        startAt: updatedAppointment.startAt,
+        endAt: updatedAppointment.endAt,
+        createdAt: updatedAppointment.createdAt,
+        updatedAt: updatedAppointment.updatedAt,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Failed to reschedule appointment',
+      );
+    }
+  }
+
+  private async isWithinStandardWorkingHours(
+    doctorId: string,
+    startAt: Date,
+    endAt: Date,
+  ): Promise<boolean> {
+    try {
+      // Get the doctor's work day for the new date
+      const workDay = await this.prisma.workDay.findFirst({
+        where: {
+          doctorId,
+          day: this.getDayOfWeek(startAt) as WeekDay,
+        },
+      });
+
+      if (!workDay) {
+        return false; // Doctor doesn't work on this day
+      }
+
+      const appointmentStartTime = this.getTimeFromDate(startAt);
+      const appointmentEndTime = this.getTimeFromDate(endAt);
+      const workStartTime = this.getTimeFromDate(workDay.startTime);
+      const workEndTime = this.getTimeFromDate(workDay.endTime);
+
+      // Check if appointment is within work hours
+      return appointmentStartTime >= workStartTime && appointmentEndTime <= workEndTime;
+    } catch (error) {
+      console.error('Error checking standard working hours:', error);
+      return false;
+    }
+  }
+
+  private async createScheduleException(
+    doctorId: string,
+    startAt: Date,
+    endAt: Date,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.scheduleException.create({
+        data: {
+          doctorId,
+          date: new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate()),
+          type: 'ADDED', // Using ADDED for rescheduled appointments outside standard hours
+          start: `${startAt.getHours().toString().padStart(2, '0')}:${startAt.getMinutes().toString().padStart(2, '0')}`,
+          end: `${endAt.getHours().toString().padStart(2, '0')}:${endAt.getMinutes().toString().padStart(2, '0')}`,
+          reason,
+        },
+      });
+    } catch (error) {
+      console.error('Error creating schedule exception:', error);
+      // Don't throw error here as the appointment rescheduling should still succeed
+    }
   }
 }

@@ -19,6 +19,7 @@ const ROLE_PERMISSIONS: Record<string, Array<{ resource: string; actions: string
     { resource: 'appointments', actions: ['read', 'update'] },
     { resource: 'chats', actions: ['create', 'read'] },
     { resource: 'patients', actions: ['read'] },
+    { resource: 'doctor', actions: ['create', "update", 'read', 'delete']}
   ],
   PATIENT: [
     { resource: 'appointments', actions: ['create', 'read'] },
