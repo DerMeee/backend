@@ -20,6 +20,7 @@ enum UserRole {
 }
 
 enum AppointmentState {
+  PENDING
   SCHEDULED
   CONFIRMED
   COMPLETED
@@ -49,6 +50,12 @@ enum WeekDay {
   FRIDAY
   SATURDAY
   SUNDAY
+}
+
+enum ExceptionType {
+  CANCELLED
+  ADDED
+  CHANGED
 }
 
 // ------------------- USER & ADDRESS -------------------
@@ -100,6 +107,8 @@ model Doctor {
 
   workDays    WorkDay[]
   appointments Appointment[]
+  scheduleExceptions ScheduleException[]
+  leaves      DoctorLeave[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -126,7 +135,7 @@ model Appointment {
   doctorId    String
   patientId   String
   type        String
-  state       AppointmentState   @default(SCHEDULED)
+  state       AppointmentState   @default(PENDING)
   startAt     DateTime
   endAt       DateTime
 
@@ -139,6 +148,7 @@ model Appointment {
 
   /// Business rule (not DB-enforced):
   /// Only a Patient can create an Appointment.
+  /// Only a Doctor can approve/reject appointments.
 }
 
 model AppointmentReport {
@@ -168,6 +178,36 @@ model WorkDay {
   updatedAt DateTime @updatedAt
 }
 
+// * defines temporary overrides (“not available on Oct 21”)
+// * avoids polluting your base schedule with ad-hoc entries. Keeps historical accuracy.
+// * we can support many types of exceptions (cancel, added, changed, etc.) easily.
+// * Base schedule is small (max 7 entries). Exceptions can grow large without affecting weekly logic.
+// * You can track who created the exception, why, when, etc.
+// * scalability
+model ScheduleException {
+  id        String   @id @default(uuid())
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  date      DateTime
+  type      ExceptionType
+  start     String?
+  end       String?
+  reason    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([doctorId, date]) // prevent multiple exceptions for same date
+}
+
+model DoctorLeave {
+  id        String   @id @default(cuid())
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  startDate DateTime
+  endDate   DateTime
+  reason    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 // ------------------- CHAT & MESSAGES -------------------
 
 model Chat {
@@ -220,8 +260,11 @@ model Product {
   id          String   @id @default(cuid())
   name        String
   description String?
+  brand       String?
   price       Float
   imageUrl    String?
+  category    String?
+  rating      Float    @default(0.0)
 
   cartItems   CartItem[]
   wishlist    Wishlist[]
