@@ -20,7 +20,12 @@ import { GetDoctorScheduleDto } from './dto/get-doctor-schedule.dto';
 import { DoctorScheduleResponseDto } from './dto/doctor-schedule-response.dto';
 import { PaginatedResponseDto } from '../appointment/dto/pagination-resp.dto';
 import {
+  ApiBadRequestResponse,
   ApiExtraModels,
+  ApiForbiddenResponse,
+  ApiInternalServerErrorResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiQuery,
   ApiResponse,
@@ -38,6 +43,8 @@ import { DoctorLeaveResponseDto } from './dto/doctor-leave-response.dto';
 import { CalendarQueryDto } from './dto/calendar-query.dto';
 import { CalendarResponseDto } from './dto/calendar-response.dto';
 import { ExportQueryDto } from './dto/export-query.dto';
+import { ResponseDto } from './dto/response.dto';
+import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
 
 @ApiTags('doctors')
 @ApiExtraModels(
@@ -48,15 +55,11 @@ import { ExportQueryDto } from './dto/export-query.dto';
   CreateDoctorLeaveDto,
   DoctorLeaveResponseDto,
   CalendarResponseDto,
+  GetSchedualExcepDto,
 )
 @Controller('doctor')
 export class DoctorController {
   constructor(private readonly doctorService: DoctorService) {}
-
-  @Post()
-  create(@Body() createDoctorDto: CreateDoctorDto) {
-    return this.doctorService.create(createDoctorDto);
-  }
 
   @ApiOperation({ summary: 'Get all doctors with pagination' })
   @ApiQuery({
@@ -86,6 +89,7 @@ export class DoctorController {
       },
     },
   })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @Get()
   findAll(
     @Query() query: GetDoctorsQueryDto,
@@ -109,10 +113,11 @@ export class DoctorController {
     status: 403,
     description: 'Forbidden - insufficient permissions',
   })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   createSchedule(
     @CurrentUser() user: any,
     @Body() createWorkDayDto: CreateWorkDayDto,
-  ) {
+  ): Promise<ResponseDto> {
     return this.doctorService.createWorkDay(user.id, createWorkDayDto);
   }
 
@@ -132,6 +137,8 @@ export class DoctorController {
     status: 404,
     description: 'Doctor not found',
   })
+  @ApiBadRequestResponse({ description: 'Invalid date format' })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'read' }])
   @Get('schedule')
@@ -144,29 +151,97 @@ export class DoctorController {
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'update' }])
+  @ApiOkResponse({
+    description: 'Schedule updated successfully',
+    type: ResponseDto,
+  })
+  @ApiBadRequestResponse({ description: 'Invalid data' })
+  @ApiNotFoundResponse({ description: 'Schedule not found' })
   @Patch('schedule')
-  updateDoctorSchedule(@CurrentUser() user: any, @Body() dto: UpdateDoctorDto) {
+  updateDoctorSchedule(
+    @CurrentUser() user: any,
+    @Body() dto: UpdateDoctorDto,
+  ): Promise<ResponseDto> {
     return this.doctorService.updateWorkDay(user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Post('schedule/exception')
+  @Permissions([{ resource: 'doctor', action: 'create' }])
+  @ApiOperation({
+    summary: 'Create an exception date for authenticated doctor',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Exception date created successfully',
+    type: ResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bad request - invalid data',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - insufficient permissions',
+  })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   createExceptionDate(
     @Body() dto: CreateExceptionDto,
     @CurrentUser() user: any,
-  ) {
+  ): Promise<ResponseDto> {
     console.log('userId', user.id);
     return this.doctorService.createExceptionDate(user.id, dto);
   }
 
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'doctor', action: 'delete' }])
+  @ApiNotFoundResponse({ description: 'Exception date not found' })
+  @ApiBadRequestResponse({ description: 'Invalid ID format' })
+  @ApiForbiddenResponse({ description: 'Forbidden - insufficient permissions' })
+  @ApiOkResponse({
+    description: 'Exception date deleted successfully',
+    type: ResponseDto,
+  })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @Delete('schedule/exception/:id')
-  deleteExceptionDate(@CurrentUser() user: any, @Param() id: string) {
+  deleteExceptionDate(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<ResponseDto> {
     return this.doctorService.deleteExceptionDate(user.id, id);
   }
 
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'doctor', action: 'delete' }])
+  @ApiOperation({
+    summary: 'Get all exception dates for authenticated doctor',
+  })
+  @ApiOkResponse({
+    description: 'List of exception dates retrieved successfully',
+    schema: {
+      allOf: [
+        {
+          $ref: getSchemaPath(PaginatedResponseDto),
+        },
+      ],
+      properties: {
+        data: {
+          type: 'array',
+          items: { $ref: getSchemaPath(GetSchedualExcepDto) },
+        },
+      },
+    },
+  })
+  @ApiNotFoundResponse({ description: 'Doctor not found' })
+  @ApiBadRequestResponse({ description: 'Invalid request' })
+  @ApiForbiddenResponse({ description: 'Forbidden - insufficient permissions' })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @Get('schedule/exception')
-  GetAllScheduleExc(@CurrentUser() user: any) {
-    return this.doctorService.getAllExceptions(user.id);
+  GetAllScheduleExc(
+    @CurrentUser() user: any,
+    @Query() query: GetDoctorsQueryDto,
+  ): Promise<PaginatedResponseDto<GetSchedualExcepDto>> {
+    return this.doctorService.getAllExceptions(user.id, query);
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -204,12 +279,7 @@ export class DoctorController {
   @ApiResponse({
     status: 200,
     description: 'Holiday period deleted successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-      },
-    },
+    type: ResponseDto,
   })
   @ApiResponse({
     status: 404,
@@ -219,10 +289,11 @@ export class DoctorController {
     status: 403,
     description: 'Forbidden - insufficient permissions or not your holiday',
   })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   deleteHoliday(
     @CurrentUser() user: any,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ success: boolean }> {
+  ): Promise<ResponseDto> {
     return this.doctorService.deleteDoctorLeave(user.id, id);
   }
 
@@ -235,14 +306,29 @@ export class DoctorController {
   @ApiResponse({
     status: 200,
     description: 'Holiday periods retrieved successfully',
-    type: [DoctorLeaveResponseDto],
+    schema: {
+      allOf: [
+        {
+          $ref: getSchemaPath(PaginatedResponseDto),
+        },
+      ],
+      properties: {
+        data: {
+          type: 'array',
+          items: { $ref: getSchemaPath(DoctorLeaveResponseDto) },
+        },
+      },
+    },
   })
   @ApiResponse({
     status: 403,
     description: 'Forbidden - insufficient permissions',
   })
-  getAllHolidays(@CurrentUser() user: any): Promise<DoctorLeaveResponseDto[]> {
-    return this.doctorService.getAllDoctorLeaves(user.id);
+  getAllHolidays(
+    @CurrentUser() user: any,
+    @Query() query: GetDoctorsQueryDto,
+  ): Promise<PaginatedResponseDto<DoctorLeaveResponseDto>> {
+    return this.doctorService.getAllDoctorLeaves(user.id, query);
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -272,6 +358,7 @@ export class DoctorController {
     status: 403,
     description: 'Forbidden - insufficient permissions',
   })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   getDoctorCalendar(
     @CurrentUser() user: any,
     @Query() query: CalendarQueryDto,
@@ -322,6 +409,9 @@ export class DoctorController {
       },
     },
   })
+  @ApiNotFoundResponse({ description: 'Doctor not found' })
+  @ApiBadRequestResponse({ description: 'Invalid request parameters' })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @ApiResponse({
     status: 403,
     description: 'Forbidden - insufficient permissions',
@@ -387,18 +477,10 @@ export class DoctorController {
     status: 404,
     description: 'Doctor not found',
   })
+  @ApiNotFoundResponse({ description: 'Doctor not found' })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @Get(':id')
   findOne(@Param('id') id: string): Promise<DoctorResponseDto> {
     return this.doctorService.findOne(id);
-  }
-
-  // @Patch(':id')
-  // update(@Param('id') id: string, @Body() updateDoctorDto: UpdateDoctorDto) {
-  //   return this.doctorService.update(+id, updateDoctorDto);
-  // }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.doctorService.remove(+id);
   }
 }

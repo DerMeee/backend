@@ -62,8 +62,8 @@ async function bootstrap() {
     }),
   );
   const config = new DocumentBuilder()
-    .setTitle('Hospital Information System API')
-    .setDescription('HIS API description')
+    .setTitle('DerMee API Documentation')
+    .setDescription('API description for DerMee application')
     .setVersion('1.0')
     .addBearerAuth()
     .build();

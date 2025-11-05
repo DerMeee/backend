@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, Put } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+  Put,
+} from '@nestjs/common';
 import { AppointmentService } from './appointment.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -13,27 +24,47 @@ import { JwtAuthGuard } from '../auth/guards/jwt-aut.guard';
 import { AuthorizationGuard } from '../auth/guards/authorization.guard';
 import { CurrentUser } from '../auth/decorator/current-user.decorator';
 import { Permissions } from '../auth/decorator/require-permission.decorator';
-import { ApiBadRequestResponse, ApiExtraModels, ApiInternalServerErrorResponse, ApiNotFoundResponse, ApiOkResponse, ApiUnauthorizedResponse, ApiForbiddenResponse, ApiOperation, ApiParam, ApiBody, getSchemaPath } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiExtraModels,
+  ApiInternalServerErrorResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiOperation,
+  ApiParam,
+  ApiBody,
+  getSchemaPath,
+} from '@nestjs/swagger';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
+import { ResponseDto } from './dto/response.dto';
 
 @UseGuards(JwtAuthGuard)
-@ApiExtraModels(DoctorAppointmentDto, PatientAppointmentDto, PaginatedResponseDto)
+@ApiExtraModels(
+  DoctorAppointmentDto,
+  PatientAppointmentDto,
+  PaginatedResponseDto,
+)
 @Controller('appointment')
 export class AppointmentController {
   constructor(private readonly appointmentService: AppointmentService) {}
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiOkResponse({
-    description: 'Appointment created successfully'
+    description: 'Appointment created successfully',
+    type: ResponseDto,
   })
   @ApiNotFoundResponse({ description: 'Patient not found' })
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   @Post()
-  create(@Body() createAppointmentDto: CreateAppointmentDto, @CurrentUser() user: any) {
+  create(
+    @Body() createAppointmentDto: CreateAppointmentDto,
+    @CurrentUser() user: any,
+  ): Promise<ResponseDto> {
     return this.appointmentService.create(createAppointmentDto, user.userId);
   }
-
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiOkResponse({
@@ -56,10 +87,12 @@ export class AppointmentController {
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   @Get('doctor')
-  getForDoctor(@Query() query: GetAppointmentsQueryDto, @CurrentUser() user: any): Promise<PaginatedResponseDto<DoctorAppointmentDto>> {
+  getForDoctor(
+    @Query() query: GetAppointmentsQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<PaginatedResponseDto<DoctorAppointmentDto>> {
     return this.appointmentService.getForDoctor(user.userId, query);
   }
-
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiOkResponse({
@@ -83,31 +116,56 @@ export class AppointmentController {
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   // GET /appointment/patient
   @Get('patient')
-  getByPatient(@Query() query: GetAppointmentsQueryDto, @CurrentUser() user: any): Promise<PaginatedResponseDto<PatientAppointmentDto>> {
+  getByPatient(
+    @Query() query: GetAppointmentsQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<PaginatedResponseDto<PatientAppointmentDto>> {
     return this.appointmentService.getByPatient(user.userId, query);
   }
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiOkResponse({
     description: 'Daily appointments for doctor retrieved successfully',
-    type: [DoctorAppointmentDto]
+    type: [DoctorAppointmentDto],
   })
   @ApiNotFoundResponse({ description: 'Patient not found' })
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   // GET /appointment/doctor/day?date=YYYY-MM-DD
   @Get('doctor/day')
-  getPerDayForDoctor(@Query('date') date: string, @CurrentUser() user: any): Promise<DoctorAppointmentDto[]> {
+  getPerDayForDoctor(
+    @Query('date') date: string,
+    @CurrentUser() user: any,
+  ): Promise<DoctorAppointmentDto[]> {
     return this.appointmentService.getPerDayForDoctor(user.userId, date);
   }
 
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiOkResponse({
+    description: 'Appointment updated successfully',
+    type: ResponseDto,
+  })
+  @ApiNotFoundResponse({ description: 'Patient not found' })
+  @ApiBadRequestResponse({ description: 'Bad Request' })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateAppointmentDto: UpdateAppointmentDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateAppointmentDto: UpdateAppointmentDto,
+  ): Promise<ResponseDto> {
     return this.appointmentService.update(id, updateAppointmentDto);
   }
 
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiOkResponse({
+    description: 'Appointment deleted successfully',
+    type: ResponseDto,
+  })
+  @ApiNotFoundResponse({ description: 'Patient not found' })
+  @ApiBadRequestResponse({ description: 'Bad Request' })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   @Delete(':id')
-  cancel(@Param('id') id: string, @CurrentUser() user: any) {
+  cancel(@Param('id') id: string, @CurrentUser() user: any): Promise<ResponseDto> {
     return this.appointmentService.cancel(id, user.userId);
   }
 
@@ -129,7 +187,8 @@ export class AppointmentController {
     type: AppointmentResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'Bad Request - Invalid appointment state or time slot not available',
+    description:
+      'Bad Request - Invalid appointment state or time slot not available',
   })
   @ApiNotFoundResponse({
     description: 'Appointment or Doctor not found',
@@ -148,7 +207,11 @@ export class AppointmentController {
     @Body() approveDto: ApproveAppointmentDto,
     @CurrentUser() user: any,
   ): Promise<AppointmentResponseDto> {
-    return this.appointmentService.approveAppointment(id, user.userId, approveDto);
+    return this.appointmentService.approveAppointment(
+      id,
+      user.userId,
+      approveDto,
+    );
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -188,7 +251,11 @@ export class AppointmentController {
     @Body() rejectDto: RejectAppointmentDto,
     @CurrentUser() user: any,
   ): Promise<AppointmentResponseDto> {
-    return this.appointmentService.rejectAppointment(id, user.userId, rejectDto);
+    return this.appointmentService.rejectAppointment(
+      id,
+      user.userId,
+      rejectDto,
+    );
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -209,7 +276,8 @@ export class AppointmentController {
     type: AppointmentResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'Bad Request - Invalid time format, past date, time slot not available, or cancelled appointment',
+    description:
+      'Bad Request - Invalid time format, past date, time slot not available, or cancelled appointment',
   })
   @ApiNotFoundResponse({
     description: 'Appointment or Doctor not found',
@@ -228,6 +296,10 @@ export class AppointmentController {
     @Body() rescheduleDto: RescheduleAppointmentDto,
     @CurrentUser() user: any,
   ): Promise<AppointmentResponseDto> {
-    return this.appointmentService.rescheduleAppointment(id, user.userId, rescheduleDto);
+    return this.appointmentService.rescheduleAppointment(
+      id,
+      user.userId,
+      rescheduleDto,
+    );
   }
 }
