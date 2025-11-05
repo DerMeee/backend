@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { LoggingMiddleware } from './middlewares/logging.middleware';
 import { AppointmentModule } from './appointment/appointment.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { ProductModule } from './product/product.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { DoctorModule } from './doctor/doctor.module';
     AuthModule,
     AppointmentModule,
     DoctorModule,
+    ProductModule,
   ],
   controllers: [AppController],
   providers: [AppService],

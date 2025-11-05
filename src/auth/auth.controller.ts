@@ -56,17 +56,8 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiResponse({ status: 500, description: 'Internal Server Error' })
   @Post('login')
-  async login(
-    @Body() loginData: LoginDto,
-  ) {
-    try {
-      const { user, accessToken, refreshToken } =
-        await this.authService.login(loginData);
-      return { user, accessToken, refreshToken }; // Return tokens for frontend use
-    } catch (error) {
-      // Re-throw the original exception to preserve the correct status code
-      throw error;
-    }
+  login(@Body() loginData: LoginDto): Promise<LoginResponseDto> {
+    return this.authService.login(loginData);
   }
 
   @ApiResponse({
@@ -77,16 +68,15 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiResponse({ status: 500, description: 'Internal Server Error' })
   @Post('signup')
-  async signup(
-    @Body() data: SignupDto,
-  ) {
-    try {
-      const { accessToken, refreshToken, user } =
-        await this.authService.signup(data);
-      return { user, accessToken, refreshToken };
-    } catch (error) {
-      throw new InternalServerErrorException(error);
-    }
+  signup(@Body() data: SignupDto): Promise<LoginResponseDto> {
+    return this.authService.signup(data);
+    // try {
+    //   const { accessToken, refreshToken, user } =
+    //     await this.authService.signup(data);
+    //   return { user, accessToken, refreshToken };
+    // } catch (error) {
+    //   throw new InternalServerErrorException(error);
+    // }
   }
 
   @ApiResponse({
@@ -98,18 +88,8 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiResponse({ status: 500, description: 'Internal Server Error' })
   @Post('refresh-token')
-  async refreshToken(
-    @Body() body: RefreshTokenRequestDto,
-  ) {
-    try {
-      const { refreshToken } = body;
-      const { accessToken } = await this.authService.refreshToken(refreshToken);
-
-      return { accessToken };
-    } catch (error) {
-      // Re-throw the original exception to preserve the correct status code
-      throw error;
-    }
+  refreshToken(@Body() body: RefreshTokenRequestDto) {
+    return this.authService.refreshToken(body);
   }
 
   @ApiBearerAuth()
@@ -124,11 +104,6 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('profile')
   async getProfile(@CurrentUser() user: any) {
-    try {
-      return await this.authService.getUserById(user.userId);
-    } catch (error) {
-      // Re-throw the original exception to preserve the correct status code
-      throw error;
-    }
+    return this.authService.getUserById(user.userId);
   }
 }

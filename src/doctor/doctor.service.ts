@@ -12,7 +12,17 @@ import { DoctorResponseDto } from './dto/doctor-response.dto';
 import { PaginatedResponseDto } from '../appointment/dto/pagination-resp.dto';
 import { DoctorScheduleResponseDto } from './dto/doctor-schedule-response.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { compareAsc, parse, startOfMonth, endOfMonth, eachDayOfInterval, format, getDay, addDays, subDays } from 'date-fns';
+import {
+  compareAsc,
+  parse,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  format,
+  getDay,
+  addDays,
+  subDays,
+} from 'date-fns';
 import { CreateWorkDayDto } from './dto/create-work-day.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateDoctorLeaveDto } from './dto/create-doctor-leave.dto';
@@ -21,6 +31,8 @@ import { CalendarQueryDto } from './dto/calendar-query.dto';
 import { CalendarResponseDto } from './dto/calendar-response.dto';
 import { CalendarDayDto } from './dto/calendar-day.dto';
 import { ExportQueryDto, ExportFormat } from './dto/export-query.dto';
+import { ResponseDto } from './dto/response.dto';
+import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
 
 @Injectable()
 export class DoctorService {
@@ -128,7 +140,10 @@ export class DoctorService {
     }
   }
 
-  async createWorkDay(doctorId: string, dto: CreateWorkDayDto) {
+  async createWorkDay(
+    doctorId: string,
+    dto: CreateWorkDayDto,
+  ): Promise<ResponseDto> {
     try {
       const { day, start, end } = dto;
       // Convert number to WeekDay enum (0=Sunday, 6=Saturday)
@@ -207,7 +222,12 @@ export class DoctorService {
         },
       });
 
-      return workDay;
+      return {
+        message: 'Work day created successfully',
+        data: {
+          id: workDay.id,
+        },
+      };
     } catch (error) {
       throw new InternalServerErrorException('Internal Error', error.message);
     }
@@ -420,7 +440,10 @@ export class DoctorService {
     }
   }
 
-  async updateWorkDay(doctorId: string, dto: UpdateDoctorDto) {
+  async updateWorkDay(
+    doctorId: string,
+    dto: UpdateDoctorDto,
+  ): Promise<ResponseDto> {
     try {
       const { day, start, end } = dto;
 
@@ -503,7 +526,12 @@ export class DoctorService {
         },
       });
 
-      return updatedWorkDay;
+      return {
+        message: 'Work day updated successfully',
+        data: {
+          id: updatedWorkDay.id,
+        },
+      };
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -515,7 +543,10 @@ export class DoctorService {
     }
   }
 
-  async createExceptionDate(doctorId: string, dto: CreateExceptionDto) {
+  async createExceptionDate(
+    doctorId: string,
+    dto: CreateExceptionDto,
+  ): Promise<ResponseDto> {
     try {
       // Resolve user -> doctor profile id (foreign key in ScheduleException)
       const user = await this.prisma.user.findUnique({
@@ -544,10 +575,20 @@ export class DoctorService {
 
       // Normalize date to UTC midnight to align with unique index and lookups
       const d = new Date(date);
-      const normalized = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+      const normalized = new Date(
+        Date.UTC(
+          d.getUTCFullYear(),
+          d.getUTCMonth(),
+          d.getUTCDate(),
+          0,
+          0,
+          0,
+          0,
+        ),
+      );
 
       // Save exception
-      return await this.prisma.scheduleException.create({
+      const schedule = await this.prisma.scheduleException.create({
         data: {
           doctorId: doctorProfileId,
           date: normalized,
@@ -557,40 +598,61 @@ export class DoctorService {
           reason: reason ?? null,
         },
       });
+      return {
+        message: 'Schedule exception created successfully',
+        data: {
+          id: schedule.id,
+        },
+      };
     } catch (error) {
-      throw new InternalServerErrorException('Internal Error', error.message)
+      throw new InternalServerErrorException('Internal Error', error.message);
     }
   }
 
-  async deleteExceptionDate(doctorId: string, exceptionId: string) {
+  async deleteExceptionDate(
+    doctorId: string,
+    exceptionId: string,
+  ): Promise<ResponseDto> {
     try {
-       const doctor = await this.prisma.user.findUnique({
-        where:{ id : doctorId},
+      const doctor = await this.prisma.user.findUnique({
+        where: { id: doctorId },
         include: {
-          doctorProfile: true
-        }
-       })
+          doctorProfile: true,
+        },
+      });
 
-       if (!doctor || !doctor?.doctorProfile){
-        throw new NotFoundException("Doctor Not found")
-       }
+      if (!doctor || !doctor?.doctorProfile) {
+        throw new NotFoundException('Doctor Not found');
+      }
 
-       const exception = await this.prisma.scheduleException.findUnique({ where: { id: exceptionId } });
+      const exception = await this.prisma.scheduleException.findUnique({
+        where: { id: exceptionId },
+      });
       if (!exception) {
         throw new NotFoundException('Exception not found');
       }
       if (exception.doctorId !== doctor.doctorProfile.id) {
-        throw new ForbiddenException('You cannot delete exceptions of another doctor');
+        throw new ForbiddenException(
+          'You cannot delete exceptions of another doctor',
+        );
       }
 
-      await this.prisma.scheduleException.delete({ where: { id: exceptionId } });
-      return { success: true };
+      const schedule = await this.prisma.scheduleException.delete({
+        where: { id: exceptionId },
+      });
+      return {
+        message: 'Schedule exception deleted successfully',
+        data: { id: schedule.id },
+      };
     } catch (error) {
-      throw new InternalServerErrorException("Internal Error", error.message)
+      throw new InternalServerErrorException('Internal Error', error.message);
     }
   }
 
-  async getAllExceptions(userId: string) {
+  async getAllExceptions(
+    userId: string,
+    query: GetDoctorsQueryDto,
+  ): Promise<PaginatedResponseDto<GetSchedualExcepDto>> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId, role: 'DOCTOR' },
@@ -598,13 +660,50 @@ export class DoctorService {
       });
 
       if (!user || !user.doctorProfile) {
-        throw new NotFoundException('Doctor profile not found or user is not a doctor');
+        throw new NotFoundException(
+          'Doctor profile not found or user is not a doctor',
+        );
       }
 
-      return this.prisma.scheduleException.findMany({
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const skip = (page - 1) * limit;
+
+      const totalCount = await this.prisma.scheduleException.count({
+        where: { doctorId: user.doctorProfile.id },
+      });
+
+      const schedule = await this.prisma.scheduleException.findMany({
         where: { doctorId: user.doctorProfile.id },
         orderBy: { date: 'desc' },
+        skip: skip,
+        take: limit,
       });
+
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPrevPage = page > 1;
+      return {
+        data: schedule.map((exception) => ({
+          id: exception.id,
+          doctorId: exception.doctorId,
+          date: exception.date,
+          type: exception.type,
+          start: exception.start || '',
+          end: exception.end || '',
+          reason: exception.reason || '',
+          createdAt: exception.createdAt,
+          updatedAt: exception.updatedAt,
+        })),
+        pagination: {
+          page: page,
+          limit: limit,
+          total: totalCount,
+          totalPages: totalPages,
+          hasNext: hasNextPage,
+          hasPrev: hasPrevPage,
+        },
+      };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Internal Error', error.message);
@@ -644,22 +743,13 @@ export class DoctorService {
           doctorId: user.doctorProfile.id,
           OR: [
             {
-              AND: [
-                { startDate: { lte: start } },
-                { endDate: { gte: start } },
-              ],
+              AND: [{ startDate: { lte: start } }, { endDate: { gte: start } }],
             },
             {
-              AND: [
-                { startDate: { lte: end } },
-                { endDate: { gte: end } },
-              ],
+              AND: [{ startDate: { lte: end } }, { endDate: { gte: end } }],
             },
             {
-              AND: [
-                { startDate: { gte: start } },
-                { endDate: { lte: end } },
-              ],
+              AND: [{ startDate: { gte: start } }, { endDate: { lte: end } }],
             },
           ],
         },
@@ -704,7 +794,7 @@ export class DoctorService {
   async deleteDoctorLeave(
     doctorId: string,
     leaveId: string,
-  ): Promise<{ success: boolean }> {
+  ): Promise<ResponseDto> {
     try {
       // Verify doctor exists
       const user = await this.prisma.user.findUnique({
@@ -735,11 +825,14 @@ export class DoctorService {
       }
 
       // Delete the leave record
-      await this.prisma.doctorLeave.delete({
+      const schedual = await this.prisma.doctorLeave.delete({
         where: { id: leaveId },
       });
 
-      return { success: true };
+      return {
+        message: 'Leave record deleted successfully',
+        data: { id: schedual.id },
+      };
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -754,7 +847,8 @@ export class DoctorService {
 
   async getAllDoctorLeaves(
     doctorId: string,
-  ): Promise<DoctorLeaveResponseDto[]> {
+    query: GetDoctorsQueryDto,
+  ): Promise<PaginatedResponseDto<DoctorLeaveResponseDto>> {
     try {
       // Verify doctor exists
       const user = await this.prisma.user.findUnique({
@@ -768,21 +862,43 @@ export class DoctorService {
         );
       }
 
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const skip = (page - 1) * limit;
+
+      const totalCount = await this.prisma.scheduleException.count({
+        where: { doctorId: user.doctorProfile.id },
+      });
+
       // Get all leave records for the doctor
       const leaves = await this.prisma.doctorLeave.findMany({
         where: { doctorId: user.doctorProfile.id },
         orderBy: { startDate: 'desc' },
       });
 
-      return leaves.map((leave) => ({
-        id: leave.id,
-        doctorId: leave.doctorId,
-        startDate: leave.startDate,
-        endDate: leave.endDate,
-        reason: leave.reason,
-        createdAt: leave.createdAt,
-        updatedAt: leave.updatedAt,
-      }));
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPrevPage = page > 1;
+
+      return {
+        data: leaves.map((leave) => ({
+          id: leave.id,
+          doctorId: leave.doctorId,
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+          reason: leave.reason,
+          createdAt: leave.createdAt,
+          updatedAt: leave.updatedAt,
+        })),
+        pagination: {
+          page: page,
+          limit: limit,
+          total: totalCount,
+          totalPages: totalPages,
+          hasNext: hasNextPage,
+          hasPrev: hasPrevPage,
+        },
+      };
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -833,7 +949,10 @@ export class DoctorService {
       // Create date range for the month
       const monthStart = startOfMonth(new Date(year, month - 1, 1));
       const monthEnd = endOfMonth(new Date(year, month - 1, 1));
-      const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
+      const daysInMonth = eachDayOfInterval({
+        start: monthStart,
+        end: monthEnd,
+      });
 
       const calendarDays: CalendarDayDto[] = [];
       let availableDays = 0;
@@ -951,8 +1070,13 @@ export class DoctorService {
         }
       }
 
-      const bookedSlots = this.getBookedSlotsForDay(doctorProfile.appointments, dateObj);
-      const availableSlots = slots.filter(slot => !bookedSlots.includes(slot));
+      const bookedSlots = this.getBookedSlotsForDay(
+        doctorProfile.appointments,
+        dateObj,
+      );
+      const availableSlots = slots.filter(
+        (slot) => !bookedSlots.includes(slot),
+      );
 
       return {
         date,
@@ -967,7 +1091,9 @@ export class DoctorService {
     }
 
     // Check regular work schedule
-    const workDay = doctorProfile.workDays.find((wd: any) => wd.day === dayName);
+    const workDay = doctorProfile.workDays.find(
+      (wd: any) => wd.day === dayName,
+    );
 
     if (!workDay) {
       return {
@@ -988,14 +1114,18 @@ export class DoctorService {
     const endStr = format(endTime, 'HH:mm');
     const slots = this.generateTimeSlots(startStr, endStr);
 
-    const bookedSlots = this.getBookedSlotsForDay(doctorProfile.appointments, dateObj);
-    const availableSlots = slots.filter(slot => !bookedSlots.includes(slot));
+    const bookedSlots = this.getBookedSlotsForDay(
+      doctorProfile.appointments,
+      dateObj,
+    );
+    const availableSlots = slots.filter((slot) => !bookedSlots.includes(slot));
 
     return {
       date,
       dayOfWeek,
       available: availableSlots.length > 0,
-      reason: availableSlots.length === 0 ? 'No available time slots' : undefined,
+      reason:
+        availableSlots.length === 0 ? 'No available time slots' : undefined,
       slots: availableSlots,
       bookedSlots,
       workSchedule: { start: startStr, end: endStr },
@@ -1024,11 +1154,11 @@ export class DoctorService {
     endOfDay.setUTCHours(23, 59, 59, 999);
 
     return appointments
-      .filter(apt => {
+      .filter((apt) => {
         const aptDate = new Date(apt.startAt);
         return aptDate >= startOfDay && aptDate <= endOfDay;
       })
-      .map(apt => {
+      .map((apt) => {
         const aptTime = new Date(apt.startAt);
         return format(aptTime, 'HH:mm');
       });
@@ -1072,8 +1202,12 @@ export class DoctorService {
       }
 
       const format = query.format || ExportFormat.ICS;
-      const startDate = query.startDate ? new Date(query.startDate) : new Date();
-      const endDate = query.endDate ? new Date(query.endDate) : addDays(startDate, 30);
+      const startDate = query.startDate
+        ? new Date(query.startDate)
+        : new Date();
+      const endDate = query.endDate
+        ? new Date(query.endDate)
+        : addDays(startDate, 30);
 
       if (format === ExportFormat.ICS) {
         return this.generateICS(user.doctorProfile, startDate, endDate);
@@ -1094,7 +1228,12 @@ export class DoctorService {
     endDate: Date,
   ): { data: string; contentType: string; filename: string } {
     const doctorName = doctorProfile.user?.name || 'Doctor';
-    const icsContent = this.buildICSContent(doctorProfile, startDate, endDate, doctorName);
+    const icsContent = this.buildICSContent(
+      doctorProfile,
+      startDate,
+      endDate,
+      doctorName,
+    );
 
     return {
       data: icsContent,
@@ -1150,8 +1289,13 @@ export class DoctorService {
     // Add work days as recurring events
     for (const workDay of doctorProfile.workDays) {
       const dayMap: Record<string, number> = {
-        'SUNDAY': 0, 'MONDAY': 1, 'TUESDAY': 2, 'WEDNESDAY': 3,
-        'THURSDAY': 4, 'FRIDAY': 5, 'SATURDAY': 6,
+        SUNDAY: 0,
+        MONDAY: 1,
+        TUESDAY: 2,
+        WEDNESDAY: 3,
+        THURSDAY: 4,
+        FRIDAY: 5,
+        SATURDAY: 6,
       };
 
       const dayOfWeek = dayMap[workDay.day];

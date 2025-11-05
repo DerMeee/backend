@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -17,6 +18,7 @@ import { AppointmentResponseDto } from './dto/appointment-response.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
 import { AppointmentState, WeekDay } from '@prisma/client';
+import { ResponseDto } from './dto/response.dto';
 
 @Injectable()
 export class AppointmentService {
@@ -25,7 +27,7 @@ export class AppointmentService {
   async create(
     createAppointmentDto: CreateAppointmentDto,
     currentUserId: string,
-  ) {
+  ): Promise<ResponseDto> {
     try {
       const { doctorUserId, date, time, durationMinutes, type } =
         createAppointmentDto;
@@ -91,15 +93,16 @@ export class AppointmentService {
         },
       });
       return {
-        status: 200,
         message: 'appointment created successfully',
         data: {
           id: created.id,
         },
       };
     } catch (error) {
-      console.log(error);
-      throw new InternalServerErrorException(error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
   }
 
@@ -107,242 +110,294 @@ export class AppointmentService {
     currentUserId: string,
     query: GetAppointmentsQueryDto,
   ): Promise<PaginatedResponseDto<DoctorAppointmentDto>> {
-    const doctor = await this.prisma.doctor.findUnique({
-      where: { userId: currentUserId },
-    });
-    if (!doctor) throw new ForbiddenException('Only doctors can access this');
+    try {
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { userId: currentUserId },
+      });
+      if (!doctor) throw new ForbiddenException('Only doctors can access this');
 
-    // Extract pagination parameters
-    const page = query.page || 1;
-    const limit = query.limit || 10;
-    const skip = (page - 1) * limit;
+      // Extract pagination parameters
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const skip = (page - 1) * limit;
 
-    // Build date filter
-    const dateFilter: any = {};
-    if (query.dateFrom || query.dateTo) {
-      dateFilter.startAt = {};
+      // Build date filter
+      const dateFilter: any = {};
+      if (query.dateFrom || query.dateTo) {
+        dateFilter.startAt = {};
 
-      if (query.dateFrom) {
-        const fromDate = new Date(query.dateFrom);
-        fromDate.setHours(0, 0, 0, 0);
-        dateFilter.startAt.gte = fromDate;
+        if (query.dateFrom) {
+          const fromDate = new Date(query.dateFrom);
+          fromDate.setHours(0, 0, 0, 0);
+          dateFilter.startAt.gte = fromDate;
+        }
+
+        if (query.dateTo) {
+          const toDate = new Date(query.dateTo);
+          toDate.setHours(23, 59, 59, 999);
+          dateFilter.startAt.lte = toDate;
+        }
       }
 
-      if (query.dateTo) {
-        const toDate = new Date(query.dateTo);
-        toDate.setHours(23, 59, 59, 999);
-        dateFilter.startAt.lte = toDate;
+      // Get total count for pagination metadata
+      const totalCount = await this.prisma.appointment.count({
+        where: {
+          doctorId: doctor.id,
+          ...dateFilter,
+        },
+      });
+
+      // Get paginated appointments
+      const appointments = await this.prisma.appointment.findMany({
+        where: {
+          doctorId: doctor.id,
+          ...dateFilter,
+        },
+        select: {
+          id: true,
+          startAt: true,
+          endAt: true,
+          state: true,
+          type: true,
+          patient: { select: { user: { select: { name: true } } } },
+        },
+        orderBy: { startAt: 'asc' },
+        skip,
+        take: limit,
+      });
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPrevPage = page > 1;
+
+      return {
+        data: appointments.map((a) => ({
+          id: a.id,
+          date: a.startAt.toISOString().slice(0, 10),
+          time: a.startAt.toISOString().slice(11, 16),
+          patient: a.patient.user.name,
+          state: a.state,
+          type: a.type,
+        })),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages,
+          hasNext: hasNextPage,
+          hasPrev: hasPrevPage,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
-
-    // Get total count for pagination metadata
-    const totalCount = await this.prisma.appointment.count({
-      where: {
-        doctorId: doctor.id,
-        ...dateFilter,
-      },
-    });
-
-    // Get paginated appointments
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        doctorId: doctor.id,
-        ...dateFilter,
-      },
-      select: {
-        id: true,
-        startAt: true,
-        endAt: true,
-        state: true,
-        type: true,
-        patient: { select: { user: { select: { name: true } } } },
-      },
-      orderBy: { startAt: 'asc' },
-      skip,
-      take: limit,
-    });
-
-    // Calculate pagination metadata
-    const totalPages = Math.ceil(totalCount / limit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
-
-    return {
-      data: appointments.map((a) => ({
-        id: a.id,
-        date: a.startAt.toISOString().slice(0, 10),
-        time: a.startAt.toISOString().slice(11, 16),
-        patient: a.patient.user.name,
-        state: a.state,
-        type: a.type,
-      })),
-      pagination: {
-        page,
-        limit,
-        total: totalCount,
-        totalPages,
-        hasNext: hasNextPage,
-        hasPrev: hasPrevPage,
-      },
-    };
   }
 
   async getByPatient(
     currentUserId: string,
     query: GetAppointmentsQueryDto,
   ): Promise<PaginatedResponseDto<PatientAppointmentDto>> {
-    const patient = await this.prisma.patient.findUnique({
-      where: { userId: currentUserId },
-    });
-    if (!patient) throw new ForbiddenException('Only patients can access this');
+    try {
+      const patient = await this.prisma.patient.findUnique({
+        where: { userId: currentUserId },
+      });
+      if (!patient)
+        throw new ForbiddenException('Only patients can access this');
 
-    // Extract pagination parameters
-    const page = query.page || 1;
-    const limit = query.limit || 10;
-    const skip = (page - 1) * limit;
+      // Extract pagination parameters
+      const page = query.page || 1;
+      const limit = query.limit || 10;
+      const skip = (page - 1) * limit;
 
-    // Build date filter
-    const dateFilter: any = {};
-    if (query.dateFrom || query.dateTo) {
-      dateFilter.startAt = {};
+      // Build date filter
+      const dateFilter: any = {};
+      if (query.dateFrom || query.dateTo) {
+        dateFilter.startAt = {};
 
-      if (query.dateFrom) {
-        const fromDate = new Date(query.dateFrom);
-        fromDate.setHours(0, 0, 0, 0);
-        dateFilter.startAt.gte = fromDate;
+        if (query.dateFrom) {
+          const fromDate = new Date(query.dateFrom);
+          fromDate.setHours(0, 0, 0, 0);
+          dateFilter.startAt.gte = fromDate;
+        }
+
+        if (query.dateTo) {
+          const toDate = new Date(query.dateTo);
+          toDate.setHours(23, 59, 59, 999);
+          dateFilter.startAt.lte = toDate;
+        }
       }
 
-      if (query.dateTo) {
-        const toDate = new Date(query.dateTo);
-        toDate.setHours(23, 59, 59, 999);
-        dateFilter.startAt.lte = toDate;
+      // Get total count for pagination metadata
+      const totalCount = await this.prisma.appointment.count({
+        where: {
+          patientId: patient.id,
+          ...dateFilter,
+        },
+      });
+
+      // Get paginated appointments
+      const appointments = await this.prisma.appointment.findMany({
+        where: {
+          patientId: patient.id,
+          ...dateFilter,
+        },
+        select: {
+          id: true,
+          startAt: true,
+          endAt: true,
+          state: true,
+          type: true,
+          doctor: { select: { user: { select: { name: true } } } },
+        },
+        orderBy: { startAt: 'asc' },
+        skip,
+        take: limit,
+      });
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNextPage = page < totalPages;
+      const hasPrevPage = page > 1;
+
+      return {
+        data: appointments.map((a) => ({
+          id: a.id,
+          date: a.startAt.toISOString().slice(0, 10),
+          time: a.startAt.toISOString().slice(11, 16),
+          doctor: a.doctor.user.name,
+          status: a.state,
+          type: a.type,
+        })),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages,
+          hasNext: hasNextPage,
+          hasPrev: hasPrevPage,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
       }
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
+  }
 
-    // Get total count for pagination metadata
-    const totalCount = await this.prisma.appointment.count({
-      where: {
-        patientId: patient.id,
-        ...dateFilter,
-      },
-    });
+  async getPerDayForDoctor(
+    currentUserId: string,
+    date: string,
+  ): Promise<DoctorAppointmentDto[]> {
+    try {
+      if (!date) throw new BadRequestException('date is required');
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { userId: currentUserId },
+      });
+      if (!doctor) throw new ForbiddenException('Only doctors can access this');
 
-    // Get paginated appointments
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        patientId: patient.id,
-        ...dateFilter,
-      },
-      select: {
-        id: true,
-        startAt: true,
-        endAt: true,
-        state: true,
-        type: true,
-        doctor: { select: { user: { select: { name: true } } } },
-      },
-      orderBy: { startAt: 'asc' },
-      skip,
-      take: limit,
-    });
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
 
-    // Calculate pagination metadata
-    const totalPages = Math.ceil(totalCount / limit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
+      const appointments = await this.prisma.appointment.findMany({
+        where: {
+          doctorId: doctor.id,
+          startAt: { gte: startOfDay, lte: endOfDay },
+        },
+        select: {
+          id: true,
+          startAt: true,
+          endAt: true,
+          type: true,
+          state: true,
+          patient: { select: { user: { select: { name: true } } } },
+        },
+        orderBy: { startAt: 'asc' },
+      });
 
-    return {
-      data: appointments.map((a) => ({
+      return appointments.map((a) => ({
         id: a.id,
         date: a.startAt.toISOString().slice(0, 10),
         time: a.startAt.toISOString().slice(11, 16),
-        doctor: a.doctor.user.name,
-        status: a.state,
+        patient: a.patient.user.name,
+        state: a.state,
         type: a.type,
-      })),
-      pagination: {
-        page,
-        limit,
-        total: totalCount,
-        totalPages,
-        hasNext: hasNextPage,
-        hasPrev: hasPrevPage,
-      },
-    };
+      }));
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
+    }
   }
 
-  async getPerDayForDoctor(currentUserId: string, date: string): Promise<DoctorAppointmentDto[]> {
-    if (!date) throw new BadRequestException('date is required');
-    const doctor = await this.prisma.doctor.findUnique({
-      where: { userId: currentUserId },
-    });
-    if (!doctor) throw new ForbiddenException('Only doctors can access this');
+  async update(
+    id: string,
+    updateAppointmentDto: UpdateAppointmentDto,
+  ): Promise<ResponseDto> {
+    try {
+      const existing = await this.prisma.appointment.findUnique({
+        where: { id },
+      });
+      if (!existing) throw new NotFoundException('Appointment not found');
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const appointments = await this.prisma.appointment.findMany({
-      where: {
-        doctorId: doctor.id,
-        startAt: { gte: startOfDay, lte: endOfDay },
-      },
-      select: {
-        id: true,
-        startAt: true,
-        endAt: true,
-        type: true,
-        state: true,
-        patient: { select: { user: { select: { name: true } } } },
-      },
-      orderBy: { startAt: 'asc' },
-    });
-
-    return appointments.map((a) => ({
-      id: a.id,
-      date: a.startAt.toISOString().slice(0, 10),
-      time: a.startAt.toISOString().slice(11, 16),
-      patient: a.patient.user.name,
-      state: a.state,
-      type: a.type,
-    }));
+      const updated = await this.prisma.appointment.update({
+        where: { id },
+        data: updateAppointmentDto as any,
+      });
+      return {
+        message: 'appointment updated successfully',
+        data: {
+          id: updated.id,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
+    }
   }
 
-  async update(id: string, updateAppointmentDto: UpdateAppointmentDto) {
-    const existing = await this.prisma.appointment.findUnique({
-      where: { id },
-    });
-    if (!existing) throw new NotFoundException('Appointment not found');
+  async cancel(id: string, currentUserId: string): Promise<ResponseDto> {
+    try {
+      const appointment = await this.prisma.appointment.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          doctor: { select: { userId: true } },
+          patient: { select: { userId: true } },
+        },
+      });
+      if (!appointment) throw new NotFoundException('Appointment not found');
 
-    const updated = await this.prisma.appointment.update({
-      where: { id },
-      data: updateAppointmentDto as any,
-    });
-    return updated;
-  }
+      const allowed =
+        appointment.patient.userId === currentUserId ||
+        appointment.doctor.userId === currentUserId;
+      if (!allowed)
+        throw new ForbiddenException(
+          "You don't have permission to cancel this appointment",
+        );
 
-  async cancel(id: string, currentUserId: string) {
-    const appointment = await this.prisma.appointment.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        doctor: { select: { userId: true } },
-        patient: { select: { userId: true } },
-      },
-    });
-    if (!appointment) throw new NotFoundException('Appointment not found');
-
-    const allowed =
-      appointment.patient.userId === currentUserId ||
-      appointment.doctor.userId === currentUserId;
-    if (!allowed)
-      throw new ForbiddenException(
-        "You don't have permission to cancel this appointment",
-      );
-
-    await this.prisma.appointment.delete({ where: { id } });
-    return { success: true, message: 'Appointment cancelled successfully' };
+      await this.prisma.appointment.delete({ where: { id } });
+      return {
+        message: 'Appointment cancelled successfully',
+        data: {
+          id: appointment.id,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
+    }
   }
 
   async approveAppointment(
@@ -379,7 +434,9 @@ export class AppointmentService {
       }
 
       if (appointment.doctorId !== doctor.id) {
-        throw new ForbiddenException('You can only approve your own appointments');
+        throw new ForbiddenException(
+          'You can only approve your own appointments',
+        );
       }
 
       if (appointment.state !== AppointmentState.PENDING) {
@@ -422,7 +479,9 @@ export class AppointmentService {
       // This could be implemented with a notification service
       if (approveDto.message) {
         // Store the approval message or send notification
-        console.log(`Approval message for appointment ${appointmentId}: ${approveDto.message}`);
+        console.log(
+          `Approval message for appointment ${appointmentId}: ${approveDto.message}`,
+        );
       }
 
       return {
@@ -437,16 +496,10 @@ export class AppointmentService {
         updatedAt: updatedAppointment.updatedAt,
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ForbiddenException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Failed to approve appointment',
-      );
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
   }
 
@@ -484,7 +537,9 @@ export class AppointmentService {
       }
 
       if (appointment.doctorId !== doctor.id) {
-        throw new ForbiddenException('You can only reject your own appointments');
+        throw new ForbiddenException(
+          'You can only reject your own appointments',
+        );
       }
 
       if (appointment.state !== AppointmentState.PENDING) {
@@ -511,7 +566,6 @@ export class AppointmentService {
 
       // TODO: Send notification to patient about rejection with reason
       // This could be implemented with a notification service
-      console.log(`Rejection reason for appointment ${appointmentId}: ${rejectDto.reason}`);
 
       return {
         id: updatedAppointment.id,
@@ -525,16 +579,10 @@ export class AppointmentService {
         updatedAt: updatedAppointment.updatedAt,
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ForbiddenException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Failed to reject appointment',
-      );
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
   }
 
@@ -556,24 +604,15 @@ export class AppointmentService {
           OR: [
             // New appointment starts during existing appointment
             {
-              AND: [
-                { startAt: { lte: startAt } },
-                { endAt: { gt: startAt } },
-              ],
+              AND: [{ startAt: { lte: startAt } }, { endAt: { gt: startAt } }],
             },
             // New appointment ends during existing appointment
             {
-              AND: [
-                { startAt: { lt: endAt } },
-                { endAt: { gte: endAt } },
-              ],
+              AND: [{ startAt: { lt: endAt } }, { endAt: { gte: endAt } }],
             },
             // New appointment completely contains existing appointment
             {
-              AND: [
-                { startAt: { gte: startAt } },
-                { endAt: { lte: endAt } },
-              ],
+              AND: [{ startAt: { gte: startAt } }, { endAt: { lte: endAt } }],
             },
           ],
         },
@@ -601,7 +640,10 @@ export class AppointmentService {
       const workEndTime = this.getTimeFromDate(workDay.endTime);
 
       // Check if appointment is within work hours
-      if (appointmentStartTime < workStartTime || appointmentEndTime > workEndTime) {
+      if (
+        appointmentStartTime < workStartTime ||
+        appointmentEndTime > workEndTime
+      ) {
         return false;
       }
 
@@ -610,8 +652,16 @@ export class AppointmentService {
         where: {
           doctorId,
           date: {
-            gte: new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate()),
-            lt: new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate() + 1),
+            gte: new Date(
+              startAt.getFullYear(),
+              startAt.getMonth(),
+              startAt.getDate(),
+            ),
+            lt: new Date(
+              startAt.getFullYear(),
+              startAt.getMonth(),
+              startAt.getDate() + 1,
+            ),
           },
         },
       });
@@ -635,13 +685,23 @@ export class AppointmentService {
 
       return true;
     } catch (error) {
-      console.error('Error checking time slot availability:', error);
-      return false;
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
   }
 
   private getDayOfWeek(date: Date): string {
-    const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    const days = [
+      'SUNDAY',
+      'MONDAY',
+      'TUESDAY',
+      'WEDNESDAY',
+      'THURSDAY',
+      'FRIDAY',
+      'SATURDAY',
+    ];
     return days[date.getDay()];
   }
 
@@ -683,38 +743,46 @@ export class AppointmentService {
       }
 
       if (appointment.doctorId !== doctor.id) {
-        throw new ForbiddenException('You can only reschedule your own appointments');
+        throw new ForbiddenException(
+          'You can only reschedule your own appointments',
+        );
       }
 
       if (appointment.state === AppointmentState.CANCELLED) {
-        throw new BadRequestException('Cannot reschedule a cancelled appointment');
+        throw new BadRequestException(
+          'Cannot reschedule a cancelled appointment',
+        );
       }
 
       // Parse and validate the new date and times
       const { newDate, newStart, newEnd, reason } = rescheduleDto;
-      
+
       // Parse new start time
       const [startHoursStr, startMinutesStr] = newStart.split(':');
       const startHours = Number(startHoursStr);
       const startMinutes = Number(startMinutesStr);
-      
+
       if (Number.isNaN(startHours) || Number.isNaN(startMinutes)) {
-        throw new BadRequestException('Invalid start time format, expected HH:mm');
+        throw new BadRequestException(
+          'Invalid start time format, expected HH:mm',
+        );
       }
 
       // Parse new end time
       const [endHoursStr, endMinutesStr] = newEnd.split(':');
       const endHours = Number(endHoursStr);
       const endMinutes = Number(endMinutesStr);
-      
+
       if (Number.isNaN(endHours) || Number.isNaN(endMinutes)) {
-        throw new BadRequestException('Invalid end time format, expected HH:mm');
+        throw new BadRequestException(
+          'Invalid end time format, expected HH:mm',
+        );
       }
 
       // Create new start and end dates
       const newStartAt = new Date(newDate);
       newStartAt.setHours(startHours, startMinutes, 0, 0);
-      
+
       const newEndAt = new Date(newDate);
       newEndAt.setHours(endHours, endMinutes, 0, 0);
 
@@ -766,9 +834,10 @@ export class AppointmentService {
           startAt: newStartAt,
           endAt: newEndAt,
           // If appointment was pending, keep it pending; if confirmed, keep confirmed
-          state: appointment.state === AppointmentState.PENDING 
-            ? AppointmentState.PENDING 
-            : AppointmentState.CONFIRMED,
+          state:
+            appointment.state === AppointmentState.PENDING
+              ? AppointmentState.PENDING
+              : AppointmentState.CONFIRMED,
         },
         include: {
           doctor: true,
@@ -781,7 +850,9 @@ export class AppointmentService {
       });
 
       // TODO: Send notification to patient about rescheduling
-      console.log(`Appointment ${appointmentId} rescheduled to ${newStartAt.toISOString()}`);
+      console.log(
+        `Appointment ${appointmentId} rescheduled to ${newStartAt.toISOString()}`,
+      );
 
       return {
         id: updatedAppointment.id,
@@ -795,16 +866,10 @@ export class AppointmentService {
         updatedAt: updatedAppointment.updatedAt,
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ForbiddenException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Failed to reschedule appointment',
-      );
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
   }
 
@@ -832,10 +897,15 @@ export class AppointmentService {
       const workEndTime = this.getTimeFromDate(workDay.endTime);
 
       // Check if appointment is within work hours
-      return appointmentStartTime >= workStartTime && appointmentEndTime <= workEndTime;
+      return (
+        appointmentStartTime >= workStartTime &&
+        appointmentEndTime <= workEndTime
+      );
     } catch (error) {
-      console.error('Error checking standard working hours:', error);
-      return false;
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
     }
   }
 
@@ -849,7 +919,11 @@ export class AppointmentService {
       await this.prisma.scheduleException.create({
         data: {
           doctorId,
-          date: new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate()),
+          date: new Date(
+            startAt.getFullYear(),
+            startAt.getMonth(),
+            startAt.getDate(),
+          ),
           type: 'ADDED', // Using ADDED for rescheduled appointments outside standard hours
           start: `${startAt.getHours().toString().padStart(2, '0')}:${startAt.getMinutes().toString().padStart(2, '0')}`,
           end: `${endAt.getHours().toString().padStart(2, '0')}:${endAt.getMinutes().toString().padStart(2, '0')}`,
@@ -857,7 +931,10 @@ export class AppointmentService {
         },
       });
     } catch (error) {
-      console.error('Error creating schedule exception:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
       // Don't throw error here as the appointment rescheduling should still succeed
     }
   }
