@@ -70,81 +70,81 @@ model User {
   addressId    String?  @unique
   address      Address? @relation(fields: [addressId], references: [id])
 
-  doctorProfile Doctor?
+  doctorProfile  Doctor?
   patientProfile Patient?
+  messages       Message[] @relation("senderMessages")
+  received       Message[] @relation("receiverMessages")
 
   notifications Notification[]
-  chats         ChatParticipant[]
-  messages      Message[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Address {
-  id          String   @id @default(cuid())
-  street      String
-  city        String
-  state       String
-  postalCode  String
-  country     String
-  validated   Boolean  @default(false)
+  id         String  @id @default(cuid())
+  street     String
+  city       String
+  state      String
+  postalCode String
+  country    String
+  validated  Boolean @default(false)
 
-  user        User?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  user      User?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ------------------- DOCTOR / PATIENT -------------------
 
 model Doctor {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
-  fees        Float
-  workYears   Int
-  about       String?
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  user      User    @relation(fields: [userId], references: [id])
+  fees      Float
+  workYears Int
+  about     String?
 
-  workDays    WorkDay[]
-  appointments Appointment[]
+  workDays           WorkDay[]
+  appointments       Appointment[]
   scheduleExceptions ScheduleException[]
-  leaves      DoctorLeave[]
+  leaves             DoctorLeave[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Patient {
-  id           String   @id @default(cuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
   appointments Appointment[]
   cart         Cart?
   orders       Order[]
   wishlist     Wishlist[]
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ------------------- APPOINTMENTS -------------------
 
 model Appointment {
-  id          String             @id @default(cuid())
-  doctorId    String
-  patientId   String
-  type        String
-  state       AppointmentState   @default(PENDING)
-  startAt     DateTime
-  endAt       DateTime
+  id        String           @id @default(cuid())
+  doctorId  String
+  patientId String
+  type      String
+  state     AppointmentState @default(PENDING)
+  startAt   DateTime
+  endAt     DateTime
 
-  doctor      Doctor   @relation(fields: [doctorId], references: [id])
-  patient     Patient  @relation(fields: [patientId], references: [id])
-  report      AppointmentReport?
+  doctor  Doctor             @relation(fields: [doctorId], references: [id])
+  patient Patient            @relation(fields: [patientId], references: [id])
+  report  AppointmentReport?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// Business rule (not DB-enforced):
   /// Only a Patient can create an Appointment.
@@ -152,14 +152,14 @@ model Appointment {
 }
 
 model AppointmentReport {
-  id             String       @id @default(cuid())
-  appointmentId  String       @unique
-  description    String
-  type           String
-  appointment    Appointment  @relation(fields: [appointmentId], references: [id])
+  id            String      @id @default(cuid())
+  appointmentId String      @unique
+  description   String
+  type          String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ------------------- WORKDAY -------------------
@@ -172,10 +172,10 @@ model WorkDay {
   endTime   DateTime
 
   doctor    Doctor   @relation(fields: [doctorId], references: [id])
-
-  @@unique([doctorId, day])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([doctorId, day])
 }
 
 // * defines temporary overrides (“not available on Oct 21”)
@@ -185,16 +185,17 @@ model WorkDay {
 // * You can track who created the exception, why, when, etc.
 // * scalability
 model ScheduleException {
-  id        String   @id @default(uuid())
+  id        String        @id @default(uuid())
   doctorId  String
-  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  doctor    Doctor        @relation(fields: [doctorId], references: [id])
   date      DateTime
   type      ExceptionType
   start     String?
   end       String?
   reason    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
   @@unique([doctorId, date]) // prevent multiple exceptions for same date
 }
 
@@ -208,47 +209,16 @@ model DoctorLeave {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 // ------------------- CHAT & MESSAGES -------------------
-
-model Chat {
-  id           String             @id @default(cuid())
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-
-  participants ChatParticipant[]
-  messages     Message[]
-}
-
-model ChatParticipant {
-  id       String   @id @default(cuid())
-  userId   String
-  chatId   String
-  user     User     @relation(fields: [userId], references: [id])
-  chat     Chat     @relation(fields: [chatId], references: [id])
-  joinedAt DateTime @default(now())
-  lastReadAt DateTime?
-
-  @@unique([userId, chatId])
-}
-
-model Message {
-  id         String   @id @default(cuid())
-  chatId     String
-  authorId   String
-  content    String
-  timestamp  DateTime @default(now())
-
-  chat       Chat     @relation(fields: [chatId], references: [id])
-  author     User     @relation(fields: [authorId], references: [id])
-}
 
 // ------------------- NOTIFICATIONS -------------------
 
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  content   String
-  read      Boolean  @default(false)
+  id      String  @id @default(cuid())
+  userId  String
+  content String
+  read    Boolean @default(false)
 
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
@@ -257,51 +227,51 @@ model Notification {
 // ------------------- PRODUCTS / E-COMMERCE -------------------
 
 model Product {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   description String?
   brand       String?
   price       Float
   imageUrl    String?
   category    String?
-  rating      Float    @default(0.0)
+  rating      Float   @default(0.0)
 
-  cartItems   CartItem[]
-  wishlist    Wishlist[]
-  orderItems  OrderItem[]
+  cartItems  CartItem[]
+  wishlist   Wishlist[]
+  orderItems OrderItem[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model Cart {
-  id        String   @id @default(cuid())
-  patientId String   @unique
-  patient   Patient  @relation(fields: [patientId], references: [id])
-  items     CartItem[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model CartItem {
-  id         String   @id @default(cuid())
-  cartId     String
-  productId  String
-  quantity   Int      @default(1)
+model Cart {
+  id        String     @id @default(cuid())
+  patientId String     @unique
+  patient   Patient    @relation(fields: [patientId], references: [id])
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
 
-  cart       Cart     @relation(fields: [cartId], references: [id])
-  product    Product  @relation(fields: [productId], references: [id])
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int    @default(1)
+
+  cart    Cart    @relation(fields: [cartId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@unique([cartId, productId])
 }
 
 model Wishlist {
-  id         String   @id @default(cuid())
-  patientId  String
-  productId  String
+  id        String @id @default(cuid())
+  patientId String
+  productId String
 
-  patient    Patient  @relation(fields: [patientId], references: [id])
-  product    Product  @relation(fields: [productId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 
   @@unique([patientId, productId])
 }
@@ -309,26 +279,40 @@ model Wishlist {
 // ------------------- ORDERS -------------------
 
 model Order {
-  id          String        @id @default(cuid())
-  patientId   String
-  payMethod   PaymentMethod
-  state       OrderState    @default(PENDING)
+  id        String        @id @default(cuid())
+  patientId String
+  payMethod PaymentMethod
+  state     OrderState    @default(PENDING)
 
-  patient     Patient       @relation(fields: [patientId], references: [id])
-  items       OrderItem[]
+  patient Patient     @relation(fields: [patientId], references: [id])
+  items   OrderItem[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model OrderItem {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   orderId     String
   productId   String
   productName String
   unitPrice   Float
   quantity    Int
 
-  order       Order    @relation(fields: [orderId], references: [id])
-  product     Product  @relation(fields: [productId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  content    String
+  senderId   String
+  receiverId String
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("senderMessages", fields: [senderId], references: [id])
+  receiver User @relation("receiverMessages", fields: [receiverId], references: [id])
+
+  @@index([receiverId])
+  @@index([senderId])
 }
