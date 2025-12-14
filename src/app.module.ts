@@ -8,6 +8,7 @@ import { LoggingMiddleware } from './middlewares/logging.middleware';
 import { AppointmentModule } from './appointment/appointment.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { ProductModule } from './product/product.module';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ProductModule } from './product/product.module';
     AppointmentModule,
     DoctorModule,
     ProductModule,
+    MessagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -42,7 +42,7 @@ export class AuthorizationGuard implements CanActivate {
     if (!user) {
       throw new ForbiddenException('Authentication required');
     }
-    console.log('user', user);
+    console.log('user from guard', user);
 
     try {
       const requiredPermissions = this.reflector.getAllAndOverride<PermissionMetadata[]>(
