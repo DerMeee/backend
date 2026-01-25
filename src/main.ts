@@ -36,10 +36,22 @@ async function bootstrap() {
 
   app.use(cookieParser());
   // CORS configuration for Docker deployment
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean); // removes empty strings
+  const allowedOriginsEnv = (process.env.ALLOWED_ORIGINS || '').trim();
+  
+  // For mobile apps, use '*' to allow all origins
+  // For web apps, specify comma-separated origins
+  let allowedOrigins: string | string[] | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => void);
+  
+  if (allowedOriginsEnv === '*' || allowedOriginsEnv === '') {
+    // Allow all origins (for mobile apps or development)
+    allowedOrigins = '*';
+  } else {
+    // Allow specific origins (for web apps)
+    allowedOrigins = allowedOriginsEnv
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+  }
 
   // app.use(doubleCsrfProtection);
   app.use(helmet());
