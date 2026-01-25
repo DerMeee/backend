@@ -36,9 +36,14 @@ import {
   ApiParam,
   ApiBody,
   getSchemaPath,
+  ApiResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
 import { ResponseDto } from './dto/response.dto';
+import { GetDoctorScheduleDto } from 'src/doctor/dto/get-doctor-schedule.dto';
+import { DoctorScheduleResponseDto } from 'src/doctor/dto/doctor-schedule-response.dto';
+import { DoctorService } from 'src/doctor/doctor.service';
 
 @UseGuards(JwtAuthGuard)
 @ApiExtraModels(
@@ -48,7 +53,10 @@ import { ResponseDto } from './dto/response.dto';
 )
 @Controller('appointment')
 export class AppointmentController {
-  constructor(private readonly appointmentService: AppointmentService) {}
+  constructor(private readonly appointmentService: AppointmentService,
+    private readonly doctorService: DoctorService
+
+  ) { }
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiOkResponse({
@@ -167,6 +175,34 @@ export class AppointmentController {
   @Delete(':id')
   cancel(@Param('id') id: string, @CurrentUser() user: any): Promise<ResponseDto> {
     return this.appointmentService.cancel(id, user.userId);
+  }
+
+  @ApiOperation({ summary: 'Get doctor schedule for a specific date' })
+  @ApiQuery({
+    name: 'date',
+    required: true,
+    description: 'Date in YYYY-MM-DD format',
+    example: '2024-01-15',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Doctor schedule retrieved successfully',
+    type: DoctorScheduleResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doctor not found',
+  })
+  @ApiBadRequestResponse({ description: 'Invalid date format' })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'appointments', action: 'read' }])
+  @Get('schedule/doctor/:id')
+  getDoctorSchedule(
+    @Param('id') id: string,
+    @Query() query: GetDoctorScheduleDto,
+  ): Promise<DoctorScheduleResponseDto> {
+    return this.doctorService.getDoctorSchedule(id, query.date);
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
