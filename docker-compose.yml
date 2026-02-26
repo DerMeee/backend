@@ -23,6 +23,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: dermee-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${FRONTEND_PORT:-3001}:3001"
+    networks:
+      - dermee-network
+
   # NestJS Application
   api:
     build:
@@ -38,7 +52,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       REFRESH_SECRET: ${REFRESH_SECRET}
       CSRF_SECRET: ${CSRF_SECRET}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,https://www.dermee.dz,https://dermee.dz,http://www.dermee.dz,http://dermee.dz}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
