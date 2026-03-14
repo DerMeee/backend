@@ -15,6 +15,7 @@ import { ApproveAppointmentDto } from './dto/approve-appointment.dto';
 import { RejectAppointmentDto } from './dto/reject-appointment.dto';
 import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
+import { AppointmentDetailDto } from './dto/appointment-detail.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
 import { AppointmentState, WeekDay } from '@prisma/client';
@@ -329,6 +330,61 @@ export class AppointmentService {
         state: a.state,
         type: a.type,
       }));
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
+    }
+  }
+
+  async getById(id: string, currentUserId: string): Promise<AppointmentDetailDto> {
+    try {
+      const appointment = await this.prisma.appointment.findUnique({
+        where: { id },
+        include: {
+          doctor: {
+            select: { id: true, userId: true, user: { select: { name: true } } },
+          },
+          patient: {
+            select: { id: true, userId: true, user: { select: { name: true } } },
+          },
+        },
+      });
+
+      if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+      }
+
+      const isDoctor = appointment.doctor.userId === currentUserId;
+      const isPatient = appointment.patient.userId === currentUserId;
+      if (!isDoctor && !isPatient) {
+        throw new ForbiddenException(
+          "You don't have permission to view this appointment",
+        );
+      }
+
+      return {
+        id: appointment.id,
+        doctorId: appointment.doctorId,
+        patientId: appointment.patientId,
+        type: appointment.type,
+        state: appointment.state,
+        date: appointment.startAt.toISOString().slice(0, 10),
+        time: appointment.startAt.toISOString().slice(11, 16),
+        startAt: appointment.startAt,
+        endAt: appointment.endAt,
+        doctor: {
+          id: appointment.doctor.id,
+          name: appointment.doctor.user.name,
+        },
+        patient: {
+          id: appointment.patient.id,
+          name: appointment.patient.user.name,
+        },
+        createdAt: appointment.createdAt,
+        updatedAt: appointment.updatedAt,
+      };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
