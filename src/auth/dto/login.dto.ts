@@ -1,11 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, MaxLength,  IsString, MinLength, IsOptional, IsBoolean, IsInt, IsDateString } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  MaxLength,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class LoginDto {
   @IsEmail({}, { message: 'invalid email format' })
   @MaxLength(50, { message: 'email can not be longer than 50 charaters' })
   @MinLength(6, { message: 'email must be at least 12 characters long' })
-  @ApiProperty({ example: 'name@example.com'})
+  @ApiProperty({ example: 'name@example.com' })
   email: string;
 
   @IsNotEmpty({ message: 'password is required' })
@@ -17,34 +23,32 @@ export class LoginDto {
 
 class AddressDetailsDto {
   @ApiProperty()
-  id:string;    
-  
-  @ApiProperty()
-  street:string;
-  
-  @ApiProperty()
-  city:string;        
+  id: string;
 
   @ApiProperty()
-  state:string
-  
-  @ApiProperty()
-  postalCode:string;
-  
-  @ApiProperty()
-  country:string;
-  
-  @ApiProperty()
-  validated:boolean;  
+  street: string;
 
   @ApiProperty()
-  createdAt:Date;   
+  city: string;
 
   @ApiProperty()
-  updatedAt:Date;  
+  state: string;
+
+  @ApiProperty()
+  postalCode: string;
+
+  @ApiProperty()
+  country: string;
+
+  @ApiProperty()
+  validated: boolean;
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiProperty()
+  updatedAt: Date;
 }
-
-
 
 export class UserLoginResponseDto {
   @ApiProperty()
@@ -64,10 +68,9 @@ export class UserLoginResponseDto {
 
   @ApiProperty({ type: AddressDetailsDto, required: false })
   address?: AddressDetailsDto;
-
 }
 
-export class LoginResponseDto{
+export class LoginResponseDto {
   @ApiProperty({ type: UserLoginResponseDto })
   user: UserLoginResponseDto;
 

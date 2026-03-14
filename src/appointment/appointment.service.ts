@@ -506,7 +506,7 @@ export class AppointmentService {
   async rejectAppointment(
     appointmentId: string,
     doctorUserId: string,
-    rejectDto: RejectAppointmentDto,
+    _rejectDto: RejectAppointmentDto,
   ): Promise<AppointmentResponseDto> {
     try {
       // First, verify the doctor exists and get their ID

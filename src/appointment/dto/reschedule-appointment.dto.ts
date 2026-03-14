@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class RescheduleAppointmentDto {
   @ApiProperty({
@@ -7,7 +13,10 @@ export class RescheduleAppointmentDto {
     example: '2025-10-20',
   })
   @IsNotEmpty({ message: 'New date is required' })
-  @IsDateString({}, { message: 'New date must be a valid date string (YYYY-MM-DD)' })
+  @IsDateString(
+    {},
+    { message: 'New date must be a valid date string (YYYY-MM-DD)' },
+  )
   newDate: string;
 
   @ApiProperty({

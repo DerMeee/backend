@@ -32,7 +32,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: user.role,
         userId: user.id,
       };
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid token');
     }
   }

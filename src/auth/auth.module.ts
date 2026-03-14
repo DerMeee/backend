@@ -5,12 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { ConfigModule } from '@nestjs/config';
-import { PrismaModule } from 'src/prisma/prisma.module';
-
 
 @Module({
   imports: [
-    PassportModule, 
+    PassportModule,
     JwtModule.register({}),
     ConfigModule.forRoot({ isGlobal: true }),
   ],

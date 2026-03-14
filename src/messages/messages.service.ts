@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   Injectable,
   InternalServerErrorException,
@@ -14,7 +15,7 @@ export class MessagesService {
   constructor(private prisma: PrismaService) {}
   async create(dto: CreateMessageDto, user: UserPayload) {
     try {
-      console.log("body in service", dto);
+      console.log('body in service', dto);
       const message = await this.prisma.message.create({
         data: {
           content: dto.content,
@@ -23,7 +24,7 @@ export class MessagesService {
         },
       });
 
-      console.log("message", message)
+      console.log('message', message);
       return message;
     } catch (error) {
       if (error instanceof HttpException) {
@@ -48,7 +49,7 @@ export class MessagesService {
         },
         take: limit,
       });
-      console.log("messages", messages)
+      console.log('messages', messages);
 
       return messages;
     } catch (error) {
@@ -61,8 +62,8 @@ export class MessagesService {
 
   async findOne(id: string) {
     try {
-      const message = this.prisma.message.findUnique({
-        where: { id: id },
+      const message = await this.prisma.message.findUnique({
+        where: { id },
       });
       if (!message) {
         throw new NotFoundException('Message not found');
@@ -76,11 +77,61 @@ export class MessagesService {
     }
   }
 
-  update(id: number, updateMessageDto: UpdateMessageDto) {
-    return `This action updates a #${id} message`;
+  async update(
+    id: string,
+    updateMessageDto: UpdateMessageDto,
+    user: UserPayload,
+  ) {
+    try {
+      const message = await this.prisma.message.findUnique({
+        where: { id },
+      });
+      if (!message) {
+        throw new NotFoundException('Message not found');
+      }
+      if (message.senderId !== user.userId) {
+        throw new ForbiddenException('You can only update your own messages');
+      }
+      const data: { content?: string } = {};
+      if (updateMessageDto.content !== undefined) {
+        data.content = updateMessageDto.content;
+      }
+      if (Object.keys(data).length === 0) {
+        return message;
+      }
+      const updated = await this.prisma.message.update({
+        where: { id },
+        data,
+      });
+      return updated;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error', error.message);
+    }
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} message`;
+  async remove(id: string, user: UserPayload) {
+    try {
+      const message = await this.prisma.message.findUnique({
+        where: { id },
+      });
+      if (!message) {
+        throw new NotFoundException('Message not found');
+      }
+      if (message.senderId !== user.userId) {
+        throw new ForbiddenException('You can only delete your own messages');
+      }
+      await this.prisma.message.delete({
+        where: { id },
+      });
+      return { message: 'Message deleted successfully' };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error', error.message);
+    }
   }
 }

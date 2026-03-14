@@ -1,5 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength, IsNumber, IsInt } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  IsNumber,
+  IsInt,
+} from 'class-validator';
 
 export enum SignupRole {
   PATIENT = 'PATIENT',
@@ -86,5 +96,3 @@ export class SignupResponseDto {
   @ApiProperty()
   refreshToken: string;
 }
-
-

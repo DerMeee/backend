@@ -14,6 +14,8 @@ export class AppController {
   @Get('service-worker.js')
   getServiceWorker(@Res() res: Response) {
     res.setHeader('Content-Type', 'application/javascript');
-    res.send(`// no-op service worker served by API to satisfy browser request\nself.addEventListener('install', () => self.skipWaiting());\nself.addEventListener('activate', () => self.clients.claim());`);
+    res.send(
+      `// no-op service worker served by API to satisfy browser request\nself.addEventListener('install', () => self.skipWaiting());\nself.addEventListener('activate', () => self.clients.claim());`,
+    );
   }
 }

@@ -1,32 +1,31 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty } from '@nestjs/swagger';
 
 class UserDto {
-    @ApiProperty()
-    name: string;
+  @ApiProperty()
+  name: string;
 }
 
 class PatientDto {
-    @ApiProperty({type: UserDto})
-    user: UserDto
+  @ApiProperty({ type: UserDto })
+  user: UserDto;
 }
 
 export class AppointmentDto {
-    @ApiProperty()
-    id: string
+  @ApiProperty()
+  id: string;
 
-    @ApiProperty()
-    startAt: Date
+  @ApiProperty()
+  startAt: Date;
 
-    @ApiProperty()
-    endAt: Date
+  @ApiProperty()
+  endAt: Date;
 
-    @ApiProperty()
-    state: string
+  @ApiProperty()
+  state: string;
 
-    @ApiProperty()
-    type: string
+  @ApiProperty()
+  type: string;
 
-    @ApiProperty()
-    patient: PatientDto
-    
+  @ApiProperty()
+  patient: PatientDto;
 }
