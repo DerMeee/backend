@@ -46,8 +46,9 @@ async function bootstrap() {
         directives: {
           defaultSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          scriptSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", 'data:', 'validator.swagger.io'],
+          scriptSrc: ["'self'", "'unsafe-inline'", 'blob:'],
+          scriptSrcElem: ["'self'", "'unsafe-inline'", 'blob:'],
+          imgSrc: ["'self'", 'data:', 'validator.swagger.io', 'blob:'],
           fontSrc: ["'self'"],
           connectSrc: ["'self'"],
           frameSrc: ["'self'"],
