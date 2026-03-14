@@ -40,7 +40,21 @@ async function bootstrap() {
   }
 
   // app.use(doubleCsrfProtection);
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'validator.swagger.io'],
+          fontSrc: ["'self'"],
+          connectSrc: ["'self'"],
+          frameSrc: ["'self'"],
+        },
+      },
+    }),
+  );
   app.use(
     cors({
       origin: allowedOrigins,
