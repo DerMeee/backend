@@ -61,15 +61,12 @@ export class AuthService {
       if (!secret) {
         throw new UnauthorizedException('Missing token');
       }
-      let payload: { userId: string } | undefined;
+      let payload: { userId: string };
       try {
-        payload = this.jwtService.verify(refreshToken, {
+        payload = this.jwtService.verify<{ userId: string }>(refreshToken, {
           secret,
-        }) as { userId: string };
+        });
       } catch {
-        throw new UnauthorizedException('Invalid token');
-      }
-      if (!payload) {
         throw new UnauthorizedException('Invalid token');
       }
 
