@@ -65,7 +65,7 @@ export class AuthService {
       try {
         payload = this.jwtService.verify(refreshToken, {
           secret,
-        });
+        }) as { userId: string };
       } catch {
         throw new UnauthorizedException('Invalid token');
       }
