@@ -20,6 +20,7 @@ import { ApproveAppointmentDto } from './dto/approve-appointment.dto';
 import { RejectAppointmentDto } from './dto/reject-appointment.dto';
 import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
 import { AppointmentResponseDto } from './dto/appointment-response.dto';
+import { AppointmentDetailDto } from './dto/appointment-detail.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-aut.guard';
 import { AuthorizationGuard } from '../auth/guards/authorization.guard';
 import { CurrentUser } from '../auth/decorator/current-user.decorator';
@@ -50,6 +51,7 @@ import { DoctorService } from 'src/doctor/doctor.service';
   DoctorAppointmentDto,
   PatientAppointmentDto,
   PaginatedResponseDto,
+  AppointmentDetailDto,
 )
 @Controller('appointment')
 export class AppointmentController {
@@ -146,6 +148,30 @@ export class AppointmentController {
     @CurrentUser() user: any,
   ): Promise<DoctorAppointmentDto[]> {
     return this.appointmentService.getPerDayForDoctor(user.userId, date);
+  }
+
+  @ApiOperation({ summary: 'Get appointment details by ID' })
+  @ApiParam({
+    name: 'id',
+    description: 'Appointment ID',
+    example: 'cmgscuyjw0004uggovqk7ildx',
+  })
+  @ApiOkResponse({
+    description: 'Appointment details retrieved successfully',
+    type: AppointmentDetailDto,
+  })
+  @ApiNotFoundResponse({ description: 'Appointment not found' })
+  @ApiForbiddenResponse({
+    description: 'Forbidden - You can only view your own appointments',
+  })
+  @ApiBadRequestResponse({ description: 'Bad Request' })
+  @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
+  @Get(':id')
+  getById(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<AppointmentDetailDto> {
+    return this.appointmentService.getById(id, user.userId);
   }
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
