@@ -6,13 +6,13 @@ import {
   OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  WsException,
 } from '@nestjs/websockets';
 import { MessagesService } from './messages.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { CurrentUser } from 'src/auth/decorator/current-user.decorator';
 import { UserPayload } from 'src/auth/dto/user-payload.dto';
-import { LoggingMiddleware } from 'src/middlewares/logging.middleware';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -50,7 +50,7 @@ export class MessagesGateway
       client.data.user = { userId: payload.userId, role: payload.role };
 
       // Optionally: add to room for direct messages by user id
-      client.join(this.getRoomName(payload.userId)); 
+      void client.join(this.getRoomName(payload.userId));
       this.logger.log(
         `Client connected: user ${payload.userId} socket ${client.id}`,
       );
@@ -71,9 +71,7 @@ export class MessagesGateway
   }
 
   private extractTokenFromHeaders(client: Socket): string | null {
-    const authHeader = client.handshake.headers?.authorization as
-      | string
-      | undefined;
+    const authHeader = client.handshake.headers?.authorization;
     if (!authHeader) return null;
     const parts = authHeader.split(' ');
     if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return parts[1];
@@ -99,12 +97,21 @@ export class MessagesGateway
   }
 
   @SubscribeMessage('updateMessage')
-  update(@MessageBody() updateMessageDto: UpdateMessageDto) {
-    return this.messagesService.update(updateMessageDto.id, updateMessageDto);
+  update(
+    @MessageBody() updateMessageDto: UpdateMessageDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const user = client.data.user as UserPayload;
+    const id = updateMessageDto.id;
+    if (!id) {
+      throw new WsException('Message id is required for update');
+    }
+    return this.messagesService.update(id, updateMessageDto, user);
   }
 
   @SubscribeMessage('removeMessage')
-  remove(@MessageBody() id: number) {
-    return this.messagesService.remove(id);
+  remove(@MessageBody() id: string, @ConnectedSocket() client: Socket) {
+    const user = client.data.user as UserPayload;
+    return this.messagesService.remove(id, user);
   }
 }

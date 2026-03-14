@@ -338,16 +338,27 @@ export class AppointmentService {
     }
   }
 
-  async getById(id: string, currentUserId: string): Promise<AppointmentDetailDto> {
+  async getById(
+    id: string,
+    currentUserId: string,
+  ): Promise<AppointmentDetailDto> {
     try {
       const appointment = await this.prisma.appointment.findUnique({
         where: { id },
         include: {
           doctor: {
-            select: { id: true, userId: true, user: { select: { name: true } } },
+            select: {
+              id: true,
+              userId: true,
+              user: { select: { name: true } },
+            },
           },
           patient: {
-            select: { id: true, userId: true, user: { select: { name: true } } },
+            select: {
+              id: true,
+              userId: true,
+              user: { select: { name: true } },
+            },
           },
         },
       });
@@ -562,7 +573,7 @@ export class AppointmentService {
   async rejectAppointment(
     appointmentId: string,
     doctorUserId: string,
-    rejectDto: RejectAppointmentDto,
+    _rejectDto: RejectAppointmentDto,
   ): Promise<AppointmentResponseDto> {
     try {
       // First, verify the doctor exists and get their ID

@@ -11,7 +11,6 @@ import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { GetDoctorsQueryDto } from './dto/get-doctors-query.dto';
 import { DoctorResponseDto } from './dto/doctor-response.dto';
 import { PaginatedResponseDto } from '../appointment/dto/pagination-resp.dto';
-import { DoctorScheduleResponseDto } from './dto/doctor-schedule-response.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   compareAsc,
@@ -22,7 +21,6 @@ import {
   format,
   getDay,
   addDays,
-  subDays,
 } from 'date-fns';
 import { CreateWorkDayDto } from './dto/create-work-day.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
@@ -38,7 +36,7 @@ import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
 @Injectable()
 export class DoctorService {
   constructor(private readonly prisma: PrismaService) {}
-  create(createDoctorDto: CreateDoctorDto) {
+  create(_createDoctorDto: CreateDoctorDto) {
     return 'This action adds a new doctor';
   }
 
@@ -864,14 +862,16 @@ export class DoctorService {
       const limit = query.limit || 10;
       const skip = (page - 1) * limit;
 
-      const totalCount = await this.prisma.scheduleException.count({
+      const totalCount = await this.prisma.doctorLeave.count({
         where: { doctorId: user.doctorProfile.id },
       });
 
-      // Get all leave records for the doctor
+      // Get all leave records for the doctor (paginated)
       const leaves = await this.prisma.doctorLeave.findMany({
         where: { doctorId: user.doctorProfile.id },
         orderBy: { startDate: 'desc' },
+        skip,
+        take: limit,
       });
 
       const totalPages = Math.ceil(totalCount / limit);
@@ -1276,7 +1276,7 @@ export class DoctorService {
     const now = new Date();
     const icsId = `doctor-schedule-${doctorProfile.id}`;
 
-    let ics = [
+    const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//DerMee//Doctor Schedule//EN',

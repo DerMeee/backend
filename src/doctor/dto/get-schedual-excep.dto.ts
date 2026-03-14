@@ -1,25 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class GetSchedualExcepDto {
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   id: string;
 
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   doctorId: string;
 
   @ApiProperty()
   date: Date;
 
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   type: string;
 
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   start: string;
 
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   end: string;
 
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   reason: string;
 
   @ApiProperty()

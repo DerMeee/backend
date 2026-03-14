@@ -12,7 +12,6 @@ import {
   Res,
 } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
-import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { GetDoctorsQueryDto } from './dto/get-doctors-query.dto';
 import { DoctorResponseDto } from './dto/doctor-response.dto';

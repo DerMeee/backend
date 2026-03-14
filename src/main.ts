@@ -1,11 +1,9 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
-import { doubleCsrf, CsrfRequestMethod } from 'csrf-csrf';
-import { Request } from 'express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { HttpExceptionFilter } from './middlewares/http.exception.filter';
 
@@ -16,32 +14,20 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  const doubleCsrfOptions = {
-    getSecret: () => process.env.CSRF_SECRET || '', // must be constant between restarts
-    getSessionIdentifier: (req: Request) => {
-      // ❌ simple version: always return the same string
-      // ✅ better: tie it to the user or session ID if you have auth
-      return req.cookies['session_id'] || 'anonymous';
-    },
-    cookieName: '__Host-csrf-token', // the name of the cookie
-    cookieOptions: {
-      httpOnly: true,
-      sameSite: 'strict' as const,
-      path: '/',
-      secure: process.env.NODE_ENV === 'production', // secure cookie in production
-    },
-    size: 64, // token size in bytes
-    ignoredMethods: ['GET', 'HEAD', 'OPTIONS'] as CsrfRequestMethod[], // do not require CSRF for safe methods
-  };
-
   app.use(cookieParser());
   // CORS configuration for Docker deployment
   const allowedOriginsEnv = (process.env.ALLOWED_ORIGINS || '').trim();
-  
+
   // For mobile apps, use '*' to allow all origins
   // For web apps, specify comma-separated origins
-  let allowedOrigins: string | string[] | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => void);
-  
+  let allowedOrigins:
+    | string
+    | string[]
+    | ((
+        origin: string | undefined,
+        callback: (err: Error | null, allow?: boolean) => void,
+      ) => void);
+
   if (allowedOriginsEnv === '*' || allowedOriginsEnv === '') {
     // Allow all origins (for mobile apps or development)
     allowedOrigins = '*';
@@ -82,7 +68,6 @@ async function bootstrap() {
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory);
 
-
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+void bootstrap();

@@ -20,11 +20,11 @@ export class GetAppointmentsQueryDto {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   dateFrom?: string; // Format: YYYY-MM-DD
 
   @IsOptional()
   @IsString()
-  @ApiProperty({type: String})
+  @ApiProperty({ type: String })
   dateTo?: string; // Format: YYYY-MM-DD
 }

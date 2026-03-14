@@ -43,7 +43,7 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
       const tokens = this.generateTokens(user);
-      const { passwordHash, ...result } = user as any;
+      const { passwordHash: _passwordHash, ...result } = user as any;
       return { user: result, ...tokens };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -61,15 +61,12 @@ export class AuthService {
       if (!secret) {
         throw new UnauthorizedException('Missing token');
       }
-      let payload: { userId: string } | undefined;
+      let payload: { userId: string };
       try {
-        payload = this.jwtService.verify(refreshToken, {
+        payload = this.jwtService.verify<{ userId: string }>(refreshToken, {
           secret,
-        }) as any;
-      } catch (error) {
-        throw new UnauthorizedException('Invalid token');
-      }
-      if (!payload) {
+        });
+      } catch {
         throw new UnauthorizedException('Invalid token');
       }
 
@@ -152,7 +149,7 @@ export class AuthService {
         console.log('Created User:', createdUser);
 
         const tokens = this.generateTokens(createdUser);
-        const { passwordHash, ...safeUser } = createdUser as any;
+        const { passwordHash: _passwordHash, ...safeUser } = createdUser as any;
         return { user: safeUser, ...tokens };
       });
 
@@ -174,7 +171,7 @@ export class AuthService {
       if (!user) {
         throw new NotFoundException('User not found');
       }
-      const { passwordHash, ...safeUser } = user as any;
+      const { passwordHash: _passwordHash, ...safeUser } = user as any;
       return safeUser;
     } catch (error) {
       if (error instanceof HttpException) {

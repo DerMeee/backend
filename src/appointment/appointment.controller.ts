@@ -55,10 +55,10 @@ import { DoctorService } from 'src/doctor/doctor.service';
 )
 @Controller('appointment')
 export class AppointmentController {
-  constructor(private readonly appointmentService: AppointmentService,
-    private readonly doctorService: DoctorService
-
-  ) { }
+  constructor(
+    private readonly appointmentService: AppointmentService,
+    private readonly doctorService: DoctorService,
+  ) {}
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiOkResponse({
@@ -199,7 +199,10 @@ export class AppointmentController {
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   @Delete(':id')
-  cancel(@Param('id') id: string, @CurrentUser() user: any): Promise<ResponseDto> {
+  cancel(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ): Promise<ResponseDto> {
     return this.appointmentService.cancel(id, user.userId);
   }
 
