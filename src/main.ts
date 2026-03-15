@@ -40,20 +40,10 @@ async function bootstrap() {
   }
 
   // app.use(doubleCsrfProtection);
+  // Disable CSP - Swagger UI requires inline scripts/styles and blob: URLs that are hard to whitelist
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          scriptSrc: ["'self'", "'unsafe-inline'", 'blob:'],
-          scriptSrcElem: ["'self'", "'unsafe-inline'", 'blob:'],
-          imgSrc: ["'self'", 'data:', 'validator.swagger.io', 'blob:'],
-          fontSrc: ["'self'"],
-          connectSrc: ["'self'"],
-          frameSrc: ["'self'"],
-        },
-      },
+      contentSecurityPolicy: false,
     }),
   );
   app.use(
