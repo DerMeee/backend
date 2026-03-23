@@ -4,6 +4,7 @@ import {
   HttpException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -18,19 +19,25 @@ import { AppointmentResponseDto } from './dto/appointment-response.dto';
 import { AppointmentDetailDto } from './dto/appointment-detail.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
-import { AppointmentState, WeekDay } from '@prisma/client';
+import { AppointmentState, VisitMode, WeekDay } from '@prisma/client';
 import { ResponseDto } from './dto/response.dto';
+import { GoogleCalendarService } from '../google/google-calendar.service';
 
 @Injectable()
 export class AppointmentService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AppointmentService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly googleCalendar: GoogleCalendarService,
+  ) {}
 
   async create(
     createAppointmentDto: CreateAppointmentDto,
     currentUserId: string,
   ): Promise<ResponseDto> {
     try {
-      const { doctorUserId, date, time, durationMinutes, type } =
+      const { doctorUserId, date, time, durationMinutes, type, visitMode } =
         createAppointmentDto;
       if (!doctorUserId || !date || !time) {
         throw new BadRequestException(
@@ -88,9 +95,9 @@ export class AppointmentService {
           doctorId: doctor.id,
           patientId: patient.id,
           type: type || 'GENERAL',
+          visitMode: visitMode ?? VisitMode.ONSITE,
           startAt,
           endAt,
-          // default state SCHEDULED per schema
         },
       });
       return {
@@ -380,6 +387,7 @@ export class AppointmentService {
         doctorId: appointment.doctorId,
         patientId: appointment.patientId,
         type: appointment.type,
+        visitMode: appointment.visitMode,
         state: appointment.state,
         date: appointment.startAt.toISOString().slice(0, 10),
         time: appointment.startAt.toISOString().slice(11, 16),
@@ -395,6 +403,7 @@ export class AppointmentService {
         },
         createdAt: appointment.createdAt,
         updatedAt: appointment.updatedAt,
+        meetLink: appointment.meetLink,
       };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -487,10 +496,14 @@ export class AppointmentService {
       const appointment = await this.prisma.appointment.findUnique({
         where: { id: appointmentId },
         include: {
-          doctor: true,
+          doctor: {
+            include: {
+              user: { select: { email: true, name: true } },
+            },
+          },
           patient: {
             include: {
-              user: true,
+              user: { select: { email: true, name: true } },
             },
           },
         },
@@ -526,11 +539,56 @@ export class AppointmentService {
         );
       }
 
+      let meetLink: string | undefined;
+      let googleCalendarEventId: string | undefined;
+
+      if (appointment.visitMode === VisitMode.ONLINE) {
+        if (!this.googleCalendar.isConfigured()) {
+          throw new BadRequestException(
+            'Online appointments require Google credentials: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN.',
+          );
+        }
+        const doctorEmail = appointment.doctor.user.email;
+        const patientEmail = appointment.patient.user.email;
+        if (!doctorEmail) {
+          throw new BadRequestException(
+            'Doctor profile must have an email for online visits.',
+          );
+        }
+        if (!patientEmail) {
+          throw new BadRequestException(
+            'Patient must have an email for online visits.',
+          );
+        }
+        try {
+          const created = await this.googleCalendar.createEventWithMeetLink({
+            summary: `Dermeee — ${appointment.type}`,
+            startAt: appointment.startAt,
+            endAt: appointment.endAt,
+            attendeeEmails: [patientEmail, doctorEmail],
+          });
+          meetLink = created.meetLink;
+          googleCalendarEventId = created.eventId;
+        } catch (err) {
+          this.logger.error(
+            `Google Calendar / Meet failed: ${err instanceof Error ? err.message : err}`,
+          );
+          throw new InternalServerErrorException(
+            'Failed to create Google Meet link. Check Calendar API and credentials.',
+          );
+        }
+      }
+
       // Update the appointment state to CONFIRMED
       const updatedAppointment = await this.prisma.appointment.update({
         where: { id: appointmentId },
         data: {
           state: AppointmentState.CONFIRMED,
+          ...(meetLink &&
+            googleCalendarEventId && {
+              meetLink,
+              googleCalendarEventId,
+            }),
         },
         include: {
           doctor: true,
@@ -561,6 +619,7 @@ export class AppointmentService {
         endAt: updatedAppointment.endAt,
         createdAt: updatedAppointment.createdAt,
         updatedAt: updatedAppointment.updatedAt,
+        meetLink: updatedAppointment.meetLink,
       };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -644,6 +703,7 @@ export class AppointmentService {
         endAt: updatedAppointment.endAt,
         createdAt: updatedAppointment.createdAt,
         updatedAt: updatedAppointment.updatedAt,
+        meetLink: updatedAppointment.meetLink,
       };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -931,6 +991,7 @@ export class AppointmentService {
         endAt: updatedAppointment.endAt,
         createdAt: updatedAppointment.createdAt,
         updatedAt: updatedAppointment.updatedAt,
+        meetLink: updatedAppointment.meetLink,
       };
     } catch (error) {
       if (error instanceof HttpException) {

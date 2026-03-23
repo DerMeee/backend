@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { VisitMode } from '@prisma/client';
 import {
   IsDateString,
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -37,4 +39,14 @@ export class CreateAppointmentDto {
   @ApiProperty()
   // Optional appointment type/label
   type?: string;
+
+  @IsOptional()
+  @IsEnum(VisitMode)
+  @ApiProperty({
+    enum: VisitMode,
+    enumName: 'VisitMode',
+    description: 'ONLINE or ONSITE; defaults to ONSITE if omitted',
+    example: VisitMode.ONSITE,
+  })
+  visitMode?: VisitMode;
 }

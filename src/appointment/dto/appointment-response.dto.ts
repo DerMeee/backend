@@ -56,4 +56,11 @@ export class AppointmentResponseDto {
     example: '2025-10-01T12:30:00.000Z',
   })
   updatedAt: Date;
+
+  @ApiProperty({
+    description: 'Google Meet link (online visits only, after approval)',
+    required: false,
+    example: 'https://meet.google.com/xxx-yyyy-zzz',
+  })
+  meetLink?: string | null;
 }

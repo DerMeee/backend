@@ -3,10 +3,11 @@ import { AppointmentService } from './appointment.service';
 import { AppointmentController } from './appointment.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { DoctorService } from 'src/doctor/doctor.service';
+import { GoogleCalendarService } from '../google/google-calendar.service';
 
 @Module({
   imports: [PrismaModule],
   controllers: [AppointmentController],
-  providers: [AppointmentService, DoctorService],
+  providers: [AppointmentService, DoctorService, GoogleCalendarService],
 })
 export class AppointmentModule {}

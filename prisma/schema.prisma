@@ -58,6 +58,11 @@ enum ExceptionType {
   CHANGED
 }
 
+enum VisitMode {
+  ONLINE
+  ONSITE
+}
+
 // ------------------- USER & ADDRESS -------------------
 
 model User {
@@ -135,9 +140,14 @@ model Appointment {
   doctorId  String
   patientId String
   type      String
+  visitMode VisitMode        @default(ONSITE)
   state     AppointmentState @default(PENDING)
   startAt   DateTime
   endAt     DateTime
+
+  /// Set when an online visit is approved and a Google Calendar event with Meet is created
+  meetLink              String?
+  googleCalendarEventId String?
 
   doctor  Doctor             @relation(fields: [doctorId], references: [id])
   patient Patient            @relation(fields: [patientId], references: [id])

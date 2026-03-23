@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { AppointmentState } from '@prisma/client';
+import { AppointmentState, VisitMode } from '@prisma/client';
 
 class DoctorInfoDto {
   @ApiProperty({ description: 'Doctor ID' })
@@ -41,6 +41,13 @@ export class AppointmentDetailDto {
     example: 'Consultation',
   })
   type: string;
+
+  @ApiProperty({
+    description: 'Online or onsite visit',
+    enum: VisitMode,
+    example: VisitMode.ONSITE,
+  })
+  visitMode: VisitMode;
 
   @ApiProperty({
     description: 'Appointment state',
@@ -96,4 +103,11 @@ export class AppointmentDetailDto {
     example: '2025-10-01T12:30:00.000Z',
   })
   updatedAt: Date;
+
+  @ApiProperty({
+    description: 'Google Meet link when visit is online and approved',
+    required: false,
+    example: 'https://meet.google.com/xxx-yyyy-zzz',
+  })
+  meetLink?: string | null;
 }

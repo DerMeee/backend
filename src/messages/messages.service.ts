@@ -1,19 +1,25 @@
 import {
   ForbiddenException,
   HttpException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UserPayload } from 'src/auth/dto/user-payload.dto';
-import { Server } from 'socket.io';
+import { MessagesGateway } from './messages.gateway';
 
 @Injectable()
 export class MessagesService {
-  constructor(private prisma: PrismaService, private server: Server) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => MessagesGateway))
+    private readonly gateway: MessagesGateway,
+  ) {}
   async create(dto: CreateMessageDto, user: UserPayload) {
     try {
       console.log('body in service', dto);
@@ -25,7 +31,7 @@ export class MessagesService {
         },
       });
 
-      this.server.emit('message', message);
+      this.gateway.server?.emit('message', message);
 
       console.log('message', message);
       return message;
@@ -54,7 +60,7 @@ export class MessagesService {
       });
       console.log('messages', messages);
 
-      this.server.emit('messages', messages);
+      this.gateway.server?.emit('messages', messages);
 
       return messages;
     } catch (error) {
@@ -73,7 +79,7 @@ export class MessagesService {
       if (!message) {
         throw new NotFoundException('Message not found');
       }
-      this.server.emit('message', message);
+      this.gateway.server?.emit('message', message);
       return message;
     } catch (error) {
       if (error instanceof HttpException) {
@@ -109,7 +115,7 @@ export class MessagesService {
         where: { id },
         data,
       });
-      this.server.emit('message', updated);
+      this.gateway.server?.emit('message', updated);
       return updated;
     } catch (error) {
       if (error instanceof HttpException) {
@@ -133,7 +139,7 @@ export class MessagesService {
       await this.prisma.message.delete({
         where: { id },
       });
-      this.server.emit('message', { message: 'Message deleted successfully' });
+      this.gateway.server?.emit('message', { message: 'Message deleted successfully' });
       return { message: 'Message deleted successfully' };
     } catch (error) {
       if (error instanceof HttpException) {
