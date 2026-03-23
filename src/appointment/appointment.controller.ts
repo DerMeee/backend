@@ -53,7 +53,7 @@ import { DoctorService } from 'src/doctor/doctor.service';
   PaginatedResponseDto,
   AppointmentDetailDto,
 )
-@Controller('appointment')
+@Controller('appointments')
 export class AppointmentController {
   constructor(
     private readonly appointmentService: AppointmentService,
@@ -235,7 +235,7 @@ export class AppointmentController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'appointment', action: 'update' }])
+  @Permissions([{ resource: 'appointments', action: 'update' }])
   @Post(':id/approve')
   @ApiOperation({ summary: 'Approve a pending appointment' })
   @ApiParam({

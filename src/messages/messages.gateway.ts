@@ -16,7 +16,7 @@ import { UserPayload } from 'src/auth/dto/user-payload.dto';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger, forwardRef } from '@nestjs/common';
 
 @WebSocketGateway()
 export class MessagesGateway
@@ -26,6 +26,7 @@ export class MessagesGateway
   server: Server;
   constructor(
     private jwtService: JwtService,
+    @Inject(forwardRef(() => MessagesService))
     private messagesService: MessagesService,
     private prisma: PrismaService,
   ) {}
