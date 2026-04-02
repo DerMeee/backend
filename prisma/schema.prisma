@@ -70,7 +70,10 @@ model User {
   name         String
   email        String   @unique
   phoneNumber  String?
-  passwordHash String
+  /// Null when the user only signs in via OAuth (Google/Facebook).
+  passwordHash String?
+  googleId     String?  @unique
+  facebookId   String?  @unique
   role         UserRole @default(PATIENT)
   addressId    String?  @unique
   address      Address? @relation(fields: [addressId], references: [id])
