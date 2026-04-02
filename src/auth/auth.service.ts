@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   Injectable,
@@ -15,6 +16,7 @@ import {
   UserLoginResponseDto,
 } from './dto/login.dto';
 import { SignupDto, SignupRole } from './dto/signup.dto';
+import type { OAuthUserProfile } from './types/oauth-profile.type';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -34,6 +36,11 @@ export class AuthService {
       });
       if (!user) {
         throw new UnauthorizedException('Invalid credentials');
+      }
+      if (!user.passwordHash) {
+        throw new UnauthorizedException(
+          'This account uses social login. Sign in with Google or Facebook.',
+        );
       }
       const isPasswordValid = await bcrypt.compare(
         loginData.password,
@@ -154,6 +161,68 @@ export class AuthService {
       });
 
       return user;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Internal Error:', error.message);
+    }
+  }
+
+  async oauthLogin(profile: OAuthUserProfile): Promise<LoginResponseDto> {
+    try {
+      if (!profile.email?.trim()) {
+        throw new BadRequestException(
+          'Your social account did not provide an email. Enable email permission or use email/password login.',
+        );
+      }
+      const email = profile.email.trim().toLowerCase();
+
+      let user =
+        profile.provider === 'google'
+          ? await this.prisma.user.findUnique({
+              where: { googleId: profile.providerId },
+            })
+          : await this.prisma.user.findUnique({
+              where: { facebookId: profile.providerId },
+            });
+
+      if (!user) {
+        const byEmail = await this.prisma.user.findUnique({
+          where: { email },
+        });
+        if (byEmail) {
+          user = await this.prisma.user.update({
+            where: { id: byEmail.id },
+            data:
+              profile.provider === 'google'
+                ? { googleId: profile.providerId }
+                : { facebookId: profile.providerId },
+          });
+        }
+      }
+
+      if (!user) {
+        user = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({
+            data: {
+              name: profile.name?.trim() || email.split('@')[0] || 'User',
+              email,
+              passwordHash: null,
+              googleId:
+                profile.provider === 'google' ? profile.providerId : null,
+              facebookId:
+                profile.provider === 'facebook' ? profile.providerId : null,
+            },
+          });
+          await tx.patient.create({ data: { userId: created.id } });
+          return created;
+        });
+      }
+
+      const tokens = this.generateTokens(user);
+      const { passwordHash: _passwordHash, ...safeUser } = user as any;
+      return { user: safeUser, ...tokens };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
