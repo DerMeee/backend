@@ -1,0 +1,66 @@
+# Production stack. Backend and frontend can use different tags (separate Git repos).
+# On the VPS: .env with DOCKER_REGISTRY, API_IMAGE_TAG, FRONTEND_IMAGE_TAG, secrets, etc.
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: dermee-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dermee_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-dermee_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dermee-network
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-dermee_user} -d ${POSTGRES_DB:-dermee_db}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: ${DOCKER_REGISTRY}/dermeee-api:${API_IMAGE_TAG}
+    container_name: dermee-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dermee_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-dermee_db}?schema=public
+    ports:
+      - '${API_PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dermee-network
+    entrypoint: ['/bin/sh', '/app/docker-entrypoint.sh']
+
+  frontend:
+    image: ${DOCKER_REGISTRY}/dermeee-frontend:${FRONTEND_IMAGE_TAG}
+    container_name: dermee-frontend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+    ports:
+      - '${FRONTEND_PORT:-3001}:3001'
+    depends_on:
+      - api
+    networks:
+      - dermee-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  dermee-network:
+    driver: bridge

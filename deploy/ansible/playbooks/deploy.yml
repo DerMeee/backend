@@ -1,0 +1,79 @@
+---
+# Deploy to VPS. Lives in the *backend* repo; run from backend/deploy/ansible.
+#
+# Jenkins / Ansible run elsewhere; VPS only needs Docker + sshd.
+#
+# Extra vars:
+#   image_tag (required) — written to API_IMAGE_TAG in .env (Nest API image).
+#   compose_services (optional) — default "api"; use "api frontend" to pull both.
+#
+# First-time on VPS:
+#   sudo mkdir -p /opt/dermeee && sudo chown $USER:$USER /opt/dermeee
+#   Copy env.server.example → /opt/dermeee/.env and set secrets + DOCKER_REGISTRY + FRONTEND_IMAGE_TAG.
+#
+# From repo backend/deploy/ansible:
+#   ansible-playbook -i inventory/hosts.ini playbooks/deploy.yml -e image_tag=abc1234
+
+- name: Deploy DerMeee stack
+  hosts: vps
+  gather_facts: false
+  vars:
+    deploy_path: /opt/dermeee
+    compose_file: docker-compose.prod.yml
+  tasks:
+    - name: Require image_tag
+      ansible.builtin.assert:
+        that:
+          - image_tag is defined
+          - image_tag | length > 0
+        fail_msg: Pass -e image_tag=<tag> (same tag your registry has for dermeee-api).
+
+    - name: Check deploy directory exists
+      ansible.builtin.stat:
+        path: '{{ deploy_path }}'
+      register: deploy_dir
+
+    - name: Fail if deploy path missing
+      ansible.builtin.fail:
+        msg: >-
+          Create {{ deploy_path }} on the VPS and add .env before first deploy.
+      when: not deploy_dir.stat.exists
+
+    - name: Check .env exists
+      ansible.builtin.stat:
+        path: '{{ deploy_path }}/.env'
+      register: env_file
+
+    - name: Fail if .env missing
+      ansible.builtin.fail:
+        msg: >-
+          Place {{ deploy_path }}/.env on the server (see deploy/env.server.example).
+      when: not env_file.stat.exists
+
+    - name: Install production compose file
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../../docker-compose.prod.yml'
+        dest: '{{ deploy_path }}/{{ compose_file }}'
+        mode: '0644'
+
+    - name: Set API_IMAGE_TAG for this release
+      ansible.builtin.lineinfile:
+        path: '{{ deploy_path }}/.env'
+        regexp: '^API_IMAGE_TAG='
+        line: 'API_IMAGE_TAG={{ image_tag }}'
+        create: false
+
+    - name: Pull images and recreate containers
+      ansible.builtin.shell: |
+        set -e
+        cd {{ deploy_path }}
+        docker compose -f {{ compose_file }} pull {{ compose_services | default('api') }}
+        docker compose -f {{ compose_file }} up -d --remove-orphans
+      args:
+        executable: /bin/bash
+      register: compose_up
+      changed_when: true
+
+    - name: Show compose output (last lines)
+      ansible.builtin.debug:
+        var: compose_up.stdout_lines
