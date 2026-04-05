@@ -1,0 +1,5 @@
+# Copy to hosts.ini (gitignored) and set your VPS IP or hostname.
+# The SSH user must be able to run `docker` and `docker compose` (member of `docker` group).
+
+[vps]
+your-vps ansible_host=203.0.113.50 ansible_user=deploy
