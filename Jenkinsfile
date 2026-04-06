@@ -73,7 +73,7 @@ pipeline {
           sh """
             cd deploy/ansible
             ansible-playbook \\
-              -i inventory/hosts.ini \\
+              -i inventory/jenkins.ini \\
               playbooks/deploy.yml \\
               -e image_tag=${IMAGE_TAG}
           """
