@@ -9,8 +9,10 @@ pipeline {
     disableConcurrentBuilds()
   }
 
+  // Prefer: Manage Jenkins → System → Global properties → Environment variables → DOCKER_REGISTRY
+  // Fallback avoids empty registry when global property is not set (same value as your GHCR namespace).
   environment {
-    DOCKER_REGISTRY = "${env.DOCKER_REGISTRY ?: ''}"
+    DOCKER_REGISTRY = "${env.DOCKER_REGISTRY?.trim() ?: 'ghcr.io/morsiyoucef-alter'}"
   }
 
   stages {
@@ -54,9 +56,9 @@ pipeline {
     stage('Build & push API') {
       steps {
         sh """
-          docker build -t ${API_IMAGE}:${IMAGE_TAG} -t ${API_IMAGE}:latest .
-          docker push ${API_IMAGE}:${IMAGE_TAG}
-          docker push ${API_IMAGE}:latest
+          docker build -t ${env.API_IMAGE}:${env.IMAGE_TAG} -t ${env.API_IMAGE}:latest .
+          docker push ${env.API_IMAGE}:${env.IMAGE_TAG}
+          docker push ${env.API_IMAGE}:latest
         """
       }
     }
@@ -75,7 +77,7 @@ pipeline {
             ansible-playbook \\
               -i inventory/jenkins.ini \\
               playbooks/deploy.yml \\
-              -e image_tag=${IMAGE_TAG}
+              -e image_tag=${env.IMAGE_TAG}
           """
         }
       }
