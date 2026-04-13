@@ -1,13 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
-  Request,
   UnauthorizedException,
 } from '@nestjs/common';
+import { catchServiceError } from '../utils/catch-service-error';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   LoginDto,
@@ -20,6 +18,19 @@ import type { OAuthUserProfile } from './types/oauth-profile.type';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { Prisma, UserRole } from '@prisma/client';
+
+const userLoginInclude = {
+  address: true,
+  patientProfile: { select: { id: true, createdAt: true } },
+  doctorProfile: {
+    select: { id: true, fees: true, workYears: true, about: true },
+  },
+} satisfies Prisma.UserInclude;
+
+type UserWithLoginRelations = Prisma.UserGetPayload<{
+  include: typeof userLoginInclude;
+}>;
 
 @Injectable()
 export class AuthService {
@@ -33,6 +44,7 @@ export class AuthService {
     try {
       const user = await this.prisma.user.findUnique({
         where: { email: loginData.email },
+        include: userLoginInclude,
       });
       if (!user) {
         throw new UnauthorizedException('Invalid credentials');
@@ -50,13 +62,12 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
       const tokens = this.generateTokens(user);
-      const { passwordHash: _passwordHash, ...result } = user as any;
-      return { user: result, ...tokens };
+      return {
+        ...tokens,
+        user: this.mapToLoginUser(user),
+      };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -88,10 +99,7 @@ export class AuthService {
       const accessToken = this.generateAccessToken(user);
       return { accessToken };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -106,7 +114,7 @@ export class AuthService {
 
       const hashed = await bcrypt.hash(data.password, 10);
 
-      const user = await this.prisma.$transaction(async (tx) => {
+      const userId = await this.prisma.$transaction(async (tx) => {
         const addressProvided = Boolean(
           data.street &&
             data.city &&
@@ -155,17 +163,12 @@ export class AuthService {
         }
         console.log('Created User:', createdUser);
 
-        const tokens = this.generateTokens(createdUser);
-        const { passwordHash: _passwordHash, ...safeUser } = createdUser as any;
-        return { user: safeUser, ...tokens };
+        return createdUser.id;
       });
 
-      return user;
+      return this.buildLoginResponse(userId);
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -220,14 +223,9 @@ export class AuthService {
         });
       }
 
-      const tokens = this.generateTokens(user);
-      const { passwordHash: _passwordHash, ...safeUser } = user as any;
-      return { user: safeUser, ...tokens };
+      return this.buildLoginResponse(user.id);
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -235,19 +233,72 @@ export class AuthService {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: { address: true },
+        include: userLoginInclude,
       });
       if (!user) {
         throw new NotFoundException('User not found');
       }
-      const { passwordHash: _passwordHash, ...safeUser } = user as any;
-      return safeUser;
+      return this.mapToLoginUser(user);
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
+  }
+
+  private async buildLoginResponse(userId: string): Promise<LoginResponseDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: userLoginInclude,
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    const tokens = this.generateTokens(user);
+    return {
+      ...tokens,
+      user: this.mapToLoginUser(user),
+    };
+  }
+
+  private mapToLoginUser(user: UserWithLoginRelations): UserLoginResponseDto {
+    const address = user.address
+      ? {
+          id: user.address.id,
+          street: user.address.street,
+          city: user.address.city,
+          state: user.address.state,
+          postalCode: user.address.postalCode,
+          country: user.address.country,
+          validated: user.address.validated,
+          createdAt: user.address.createdAt,
+          updatedAt: user.address.updatedAt,
+        }
+      : undefined;
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      profilePictureUrl: user.profilePictureUrl,
+      address,
+      patient:
+        user.role === UserRole.PATIENT && user.patientProfile
+          ? {
+              id: user.patientProfile.id,
+              createdAt: user.patientProfile.createdAt,
+            }
+          : undefined,
+      doctor:
+        user.role === UserRole.DOCTOR && user.doctorProfile
+          ? {
+              id: user.doctorProfile.id,
+              fees: user.doctorProfile.fees,
+              workYears: user.doctorProfile.workYears,
+              about: user.doctorProfile.about,
+            }
+          : undefined,
+    };
   }
 
   private generateTokens(user: any) {

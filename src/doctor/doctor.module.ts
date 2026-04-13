@@ -3,9 +3,10 @@ import { DoctorService } from './doctor.service';
 import { DoctorController } from './doctor.controller';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { PatientModule } from '../patient/patient.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, PatientModule],
   controllers: [DoctorController],
   providers: [DoctorService],
 })

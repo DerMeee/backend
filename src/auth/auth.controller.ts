@@ -15,6 +15,8 @@ import {
   RefreshTokenResponseDto,
   UserLoginResponseDto,
   RefreshTokenRequestDto,
+  PatientLoginProfileDto,
+  DoctorLoginProfileDto,
 } from './dto/login.dto';
 import { SignupDto, SignupResponseDto } from './dto/signup.dto';
 import { JwtAuthGuard } from './guards/jwt-aut.guard';
@@ -25,11 +27,13 @@ import { ConfigService } from '@nestjs/config';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiExtraModels,
   ApiNotFoundResponse,
   ApiResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 
+@ApiExtraModels(PatientLoginProfileDto, DoctorLoginProfileDto)
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -39,7 +43,8 @@ export class AuthController {
 
   @ApiResponse({
     status: 200,
-    description: 'User logged in successfully',
+    description:
+      'User logged in successfully. `user.patient` is set when role is PATIENT; `user.doctor` when role is DOCTOR.',
     type: LoginResponseDto,
     headers: {
       'Set-Cookie': {

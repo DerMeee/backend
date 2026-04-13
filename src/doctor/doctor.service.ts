@@ -1,9 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
-  HttpException,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
@@ -32,6 +30,7 @@ import { CalendarDayDto } from './dto/calendar-day.dto';
 import { ExportQueryDto, ExportFormat } from './dto/export-query.dto';
 import { ResponseDto } from './dto/response.dto';
 import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
+import { catchServiceError } from '../utils/catch-service-error';
 
 @Injectable()
 export class DoctorService {
@@ -94,10 +93,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      throw new InternalServerErrorException(
-        'Internal error server',
-        error.message,
-      );
+      catchServiceError(error);
     }
   }
 
@@ -132,10 +128,7 @@ export class DoctorService {
         updatedAt: doctor.updatedAt,
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -228,7 +221,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -429,10 +422,7 @@ export class DoctorService {
           (availableSlots.length === 0 ? 'No available time slots' : undefined),
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -529,13 +519,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -601,7 +585,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -641,7 +625,7 @@ export class DoctorService {
         data: { id: schedule.id },
       };
     } catch (error) {
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -701,8 +685,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -777,13 +760,7 @@ export class DoctorService {
         updatedAt: leave.updatedAt,
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -830,14 +807,7 @@ export class DoctorService {
         data: { id: schedual.id },
       };
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException ||
-        error instanceof ForbiddenException
-      ) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -898,10 +868,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -997,10 +964,7 @@ export class DoctorService {
         },
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -1213,10 +1177,7 @@ export class DoctorService {
         return this.generateJSON(user.doctorProfile, startDate, endDate);
       }
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 

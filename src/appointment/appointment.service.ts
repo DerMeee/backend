@@ -1,12 +1,12 @@
 import {
   BadRequestException,
   ForbiddenException,
-  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { catchServiceError } from '../utils/catch-service-error';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { GetAppointmentsQueryDto } from './dto/get-appointments-query.dto';
@@ -107,10 +107,7 @@ export class AppointmentService {
         },
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -198,10 +195,7 @@ export class AppointmentService {
         },
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -290,10 +284,7 @@ export class AppointmentService {
         },
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -338,10 +329,7 @@ export class AppointmentService {
         type: a.type,
       }));
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -406,10 +394,7 @@ export class AppointmentService {
         meetLink: appointment.meetLink,
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -434,10 +419,7 @@ export class AppointmentService {
         },
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -469,10 +451,7 @@ export class AppointmentService {
         },
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -622,10 +601,7 @@ export class AppointmentService {
         meetLink: updatedAppointment.meetLink,
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -706,10 +682,7 @@ export class AppointmentService {
         meetLink: updatedAppointment.meetLink,
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -812,10 +785,7 @@ export class AppointmentService {
 
       return true;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -994,10 +964,7 @@ export class AppointmentService {
         meetLink: updatedAppointment.meetLink,
       };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -1030,10 +997,7 @@ export class AppointmentService {
         appointmentEndTime <= workEndTime
       );
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -1059,11 +1023,7 @@ export class AppointmentService {
         },
       });
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error:', error.message);
-      // Don't throw error here as the appointment rescheduling should still succeed
+      catchServiceError(error);
     }
   }
 }

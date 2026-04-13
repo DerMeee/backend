@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { catchServiceError } from '../utils/catch-service-error';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
@@ -40,49 +41,53 @@ export class GoogleCalendarService {
     endAt: Date;
     attendeeEmails: string[];
   }): Promise<{ meetLink: string; eventId: string }> {
-    if (!this.oauth2Client) {
-      throw new Error(
-        'Google Calendar is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN.',
-      );
-    }
+    try {
+      if (!this.oauth2Client) {
+        throw new Error(
+          'Google Calendar is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN.',
+        );
+      }
 
-    const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
-    const res = await calendar.events.insert({
-      calendarId: this.calendarId,
-      conferenceDataVersion: 1,
-      requestBody: {
-        summary: input.summary,
-        start: {
-          dateTime: input.startAt.toISOString(),
-          timeZone: 'UTC',
-        },
-        end: {
-          dateTime: input.endAt.toISOString(),
-          timeZone: 'UTC',
-        },
-        attendees: input.attendeeEmails
-          .filter((e) => typeof e === 'string' && e.includes('@'))
-          .map((email) => ({ email })),
-        conferenceData: {
-          createRequest: {
-            requestId: randomUUID(),
-            conferenceSolutionKey: { type: 'hangoutsMeet' },
+      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+      const res = await calendar.events.insert({
+        calendarId: this.calendarId,
+        conferenceDataVersion: 1,
+        requestBody: {
+          summary: input.summary,
+          start: {
+            dateTime: input.startAt.toISOString(),
+            timeZone: 'UTC',
+          },
+          end: {
+            dateTime: input.endAt.toISOString(),
+            timeZone: 'UTC',
+          },
+          attendees: input.attendeeEmails
+            .filter((e) => typeof e === 'string' && e.includes('@'))
+            .map((email) => ({ email })),
+          conferenceData: {
+            createRequest: {
+              requestId: randomUUID(),
+              conferenceSolutionKey: { type: 'hangoutsMeet' },
+            },
           },
         },
-      },
-    });
+      });
 
-    const data = res.data;
-    const meetLink =
-      data.hangoutLink ||
-      data.conferenceData?.entryPoints?.find(
-        (e) => e.entryPointType === 'video',
-      )?.uri;
+      const data = res.data;
+      const meetLink =
+        data.hangoutLink ||
+        data.conferenceData?.entryPoints?.find(
+          (e) => e.entryPointType === 'video',
+        )?.uri;
 
-    if (!meetLink || !data.id) {
-      this.logger.error(JSON.stringify(data));
-      throw new Error('Calendar did not return a Meet link or event id');
+      if (!meetLink || !data.id) {
+        this.logger.error(JSON.stringify(data));
+        throw new Error('Calendar did not return a Meet link or event id');
+      }
+      return { meetLink, eventId: data.id };
+    } catch (error) {
+      catchServiceError(error);
     }
-    return { meetLink, eventId: data.id };
   }
 }

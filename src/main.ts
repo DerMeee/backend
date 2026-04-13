@@ -1,5 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -8,9 +10,12 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { HttpExceptionFilter } from './middlewares/http.exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'debug', 'log', 'verbose', 'fatal'],
   });
+
+  const uploadsRoot = join(process.cwd(), 'uploads');
+  app.useStaticAssets(uploadsRoot, { prefix: '/uploads/', index: false });
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
