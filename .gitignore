@@ -4,6 +4,8 @@
 /build
 /tmp
 
+# User uploads (profile pictures, patient documents)
+/uploads
 
 # Logs
 logs

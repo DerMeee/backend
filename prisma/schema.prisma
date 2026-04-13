@@ -63,6 +63,15 @@ enum VisitMode {
   ONSITE
 }
 
+/// Category for files a patient uploads (prescriptions, labs, etc.).
+enum PatientDocumentType {
+  PRESCRIPTION
+  LAB_RESULT
+  MEDICAL_REPORT
+  INSURANCE
+  OTHER
+}
+
 // ------------------- USER & ADDRESS -------------------
 
 model User {
@@ -77,6 +86,9 @@ model User {
   role         UserRole @default(PATIENT)
   addressId    String?  @unique
   address      Address? @relation(fields: [addressId], references: [id])
+
+  /// Public URL path or storage key for profile avatar (patients, doctors, admins).
+  profilePictureUrl String?
 
   doctorProfile  Doctor?
   patientProfile Patient?
@@ -131,9 +143,32 @@ model Patient {
   cart         Cart?
   orders       Order[]
   wishlist     Wishlist[]
+  documents    PatientDocument[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Uploaded files tied to a patient (prescriptions, labs, insurance scans, etc.).
+model PatientDocument {
+  id        String @id @default(cuid())
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  /// URL or object key returned by your storage layer after upload.
+  fileUrl String
+  /// Original filename from the client (for display/download).
+  fileName String
+  mimeType String?
+
+  documentType PatientDocumentType @default(OTHER)
+  /// Optional short label shown in the UI (e.g. “Spring 2025 checkup”).
+  title String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
 }
 
 // ------------------- APPOINTMENTS -------------------

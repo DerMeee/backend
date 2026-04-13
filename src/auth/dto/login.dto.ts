@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
   IsNotEmpty,
@@ -50,6 +50,30 @@ class AddressDetailsDto {
   updatedAt: Date;
 }
 
+/** Domain profile when `role` is PATIENT */
+export class PatientLoginProfileDto {
+  @ApiProperty({ description: 'Patient row id' })
+  id: string;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt: Date;
+}
+
+/** Domain profile when `role` is DOCTOR */
+export class DoctorLoginProfileDto {
+  @ApiProperty({ description: 'Doctor row id' })
+  id: string;
+
+  @ApiProperty()
+  fees: number;
+
+  @ApiProperty()
+  workYears: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  about: string | null;
+}
+
 export class UserLoginResponseDto {
   @ApiProperty()
   id: string;
@@ -60,14 +84,32 @@ export class UserLoginResponseDto {
   @ApiProperty()
   email: string;
 
-  @ApiProperty()
-  phoneNumber: string;
+  @ApiPropertyOptional({ nullable: true })
+  phoneNumber: string | null;
 
-  @ApiProperty()
-  role?: string;
+  @ApiProperty({ enum: ['PATIENT', 'DOCTOR', 'ADMIN'] })
+  role: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Public path to profile picture (see User.profilePictureUrl)',
+  })
+  profilePictureUrl?: string | null;
 
   @ApiProperty({ type: AddressDetailsDto, required: false })
   address?: AddressDetailsDto;
+
+  @ApiPropertyOptional({
+    type: PatientLoginProfileDto,
+    description: 'Present when role is PATIENT',
+  })
+  patient?: PatientLoginProfileDto;
+
+  @ApiPropertyOptional({
+    type: DoctorLoginProfileDto,
+    description: 'Present when role is DOCTOR',
+  })
+  doctor?: DoctorLoginProfileDto;
 }
 
 export class LoginResponseDto {

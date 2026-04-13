@@ -44,6 +44,8 @@ import { CalendarResponseDto } from './dto/calendar-response.dto';
 import { ExportQueryDto } from './dto/export-query.dto';
 import { ResponseDto } from './dto/response.dto';
 import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
+import { PatientService } from '../patient/patient.service';
+import { UserPayload } from '../auth/dto/user-payload.dto';
 
 @ApiTags('doctors')
 @ApiExtraModels(
@@ -58,7 +60,10 @@ import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
 )
 @Controller('doctor')
 export class DoctorController {
-  constructor(private readonly doctorService: DoctorService) {}
+  constructor(
+    private readonly doctorService: DoctorService,
+    private readonly patientService: PatientService,
+  ) {}
 
   @ApiOperation({ summary: 'Get all doctors with pagination' })
   @ApiQuery({
@@ -94,6 +99,28 @@ export class DoctorController {
     @Query() query: GetDoctorsQueryDto,
   ): Promise<PaginatedResponseDto<DoctorResponseDto>> {
     return this.doctorService.findAll(query);
+  }
+
+  @Get('patients/:patientId/documents')
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'patients', action: 'read' }])
+  @ApiOperation({
+    summary: 'List a patient’s uploaded documents (doctor)',
+    description:
+      'Same payload as the patient’s GET /patients/me/documents. Allowed only if this doctor has at least one appointment with the patient. Download files using each document’s fileUrl (GET /uploads/...).',
+  })
+  @ApiOkResponse({ description: 'Patient documents (metadata and file URLs)' })
+  @ApiNotFoundResponse({ description: 'Patient not found' })
+  @ApiForbiddenResponse({
+    description:
+      'Not a doctor, no shared appointment with this patient, or insufficient permission',
+  })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
+  listPatientDocumentsForDoctor(
+    @Param('patientId', ParseUUIDPipe) patientId: string,
+    @CurrentUser() user: UserPayload,
+  ) {
+    return this.patientService.listDocumentsForDoctor(user.userId, patientId);
   }
 
   @Post('schedule')

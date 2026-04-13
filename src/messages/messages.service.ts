@@ -1,12 +1,11 @@
 import {
   ForbiddenException,
-  HttpException,
   Inject,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { catchServiceError } from '../utils/catch-service-error';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -36,10 +35,7 @@ export class MessagesService {
       console.log('message', message);
       return message;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -64,10 +60,7 @@ export class MessagesService {
 
       return messages;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -82,10 +75,7 @@ export class MessagesService {
       this.gateway.server?.emit('message', message);
       return message;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -118,10 +108,7 @@ export class MessagesService {
       this.gateway.server?.emit('message', updated);
       return updated;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 
@@ -142,10 +129,7 @@ export class MessagesService {
       this.gateway.server?.emit('message', { message: 'Message deleted successfully' });
       return { message: 'Message deleted successfully' };
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Internal Error', error.message);
+      catchServiceError(error);
     }
   }
 }
