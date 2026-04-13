@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Post,
-  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
