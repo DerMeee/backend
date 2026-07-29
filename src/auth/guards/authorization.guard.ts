@@ -22,6 +22,7 @@ const ROLE_PERMISSIONS: Record<
       actions: ['create', 'read', 'update', 'delete'],
     },
     { resource: 'products', actions: ['create', 'read', 'update', 'delete'] },
+    { resource: 'orders', actions: ['create', 'read', 'update', 'delete'] },
     { resource: 'chats', actions: ['create', 'read', 'update', 'delete'] },
   ],
   DOCTOR: [
