@@ -15,7 +15,8 @@ export class GoogleCalendarService {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
     const refreshToken = this.config.get<string>('GOOGLE_REFRESH_TOKEN');
-    this.calendarId = this.config.get<string>('GOOGLE_CALENDAR_ID') || 'primary';
+    this.calendarId =
+      this.config.get<string>('GOOGLE_CALENDAR_ID') || 'primary';
 
     if (clientId && clientSecret && refreshToken) {
       this.oauth2Client = new google.auth.OAuth2(
@@ -48,7 +49,10 @@ export class GoogleCalendarService {
         );
       }
 
-      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+      const calendar = google.calendar({
+        version: 'v3',
+        auth: this.oauth2Client,
+      });
       const res = await calendar.events.insert({
         calendarId: this.calendarId,
         conferenceDataVersion: 1,
