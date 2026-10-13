@@ -28,6 +28,7 @@ RUN npm ci
 # Copy source code
 COPY src ./src
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 
 # Generate Prisma Client
 RUN npx prisma generate
@@ -47,6 +48,7 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 
 # Install only production dependencies
 RUN npm ci --only=production && npm cache clean --force

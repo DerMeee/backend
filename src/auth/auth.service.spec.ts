@@ -106,7 +106,9 @@ describe('AuthService', () => {
         role: 'PATIENT',
       });
 
-      const result = await service.refreshToken('valid.token');
+      const result = await service.refreshToken({
+        refreshToken: 'valid.token',
+      });
 
       expect(jwt.verify).toHaveBeenCalledWith('valid.token', {
         secret: 'JWT_SECRET',
@@ -122,9 +124,9 @@ describe('AuthService', () => {
       jwt.verify.mockImplementationOnce(() => {
         throw new Error('Invalid token');
       });
-      await expect(service.refreshToken('bad.token')).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      await expect(
+        service.refreshToken({ refreshToken: 'bad.token' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 

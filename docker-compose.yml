@@ -44,6 +44,9 @@ services:
       target: production
     container_name: dermee-api
     restart: unless-stopped
+    # Pass every variable from .env (OAuth keys, Google Calendar, etc.) into the container.
+    # Keys listed under environment: below take precedence over env_file.
+    env_file: .env
     environment:
       NODE_ENV: production
       PORT: 3000
