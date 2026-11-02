@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
-import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { GetDoctorsQueryDto } from './dto/get-doctors-query.dto';
 import { DoctorResponseDto } from './dto/doctor-response.dto';
 import { PaginatedResponseDto } from '../appointment/dto/pagination-resp.dto';
@@ -21,6 +20,8 @@ import {
   addDays,
 } from 'date-fns';
 import { CreateWorkDayDto } from './dto/create-work-day.dto';
+import { CreateWorkDaysBulkDto } from './dto/create-work-days-bulk.dto';
+import { WorkDayResponseDto, WorkDaysListResponseDto } from './dto/work-day-response.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateDoctorLeaveDto } from './dto/create-doctor-leave.dto';
 import { DoctorLeaveResponseDto } from './dto/doctor-leave-response.dto';
@@ -132,13 +133,53 @@ export class DoctorService {
     }
   }
 
-  async createWorkDay(
+  async getWorkDays(doctorId: string): Promise<WorkDaysListResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: doctorId, role: 'DOCTOR' },
+        include: {
+          doctorProfile: {
+            include: { workDays: true },
+          },
+        },
+      });
+
+      if (!user || !user.doctorProfile) {
+        throw new NotFoundException(
+          'Doctor profile not found or user is not a doctor',
+        );
+      }
+
+      const dayOrder = [
+        'SUNDAY',
+        'MONDAY',
+        'TUESDAY',
+        'WEDNESDAY',
+        'THURSDAY',
+        'FRIDAY',
+        'SATURDAY',
+      ];
+
+      const data: WorkDayResponseDto[] = user.doctorProfile.workDays
+        .sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day))
+        .map((wd) => ({
+          id: wd.id,
+          day: wd.day,
+          start: format(new Date(wd.startTime), 'HH:mm'),
+          end: format(new Date(wd.endTime), 'HH:mm'),
+        }));
+
+      return { data };
+    } catch (error) {
+      catchServiceError(error);
+    }
+  }
+
+  async createWorkDays(
     doctorId: string,
-    dto: CreateWorkDayDto,
+    dto: CreateWorkDaysBulkDto,
   ): Promise<ResponseDto> {
     try {
-      const { day, start, end } = dto;
-      // Convert number to WeekDay enum (0=Sunday, 6=Saturday)
       const weekDays = [
         'SUNDAY',
         'MONDAY',
@@ -148,77 +189,83 @@ export class DoctorService {
         'FRIDAY',
         'SATURDAY',
       ];
-      const weekDay = weekDays[day] as
-        | 'SUNDAY'
-        | 'MONDAY'
-        | 'TUESDAY'
-        | 'WEDNESDAY'
-        | 'THURSDAY'
-        | 'FRIDAY'
-        | 'SATURDAY';
 
-      // Parse and validate time order
-      const startTime = parse(start, 'HH:mm', new Date());
-      const endTime = parse(end, 'HH:mm', new Date());
-      if (compareAsc(endTime, startTime) <= 0) {
-        throw new BadRequestException('End time must be after start time');
-      }
-
-      // Convert to DateTime objects for today (we only care about the time part)
-      const today = new Date();
-      const startDateTime = new Date(today);
-      startDateTime.setHours(
-        startTime.getHours(),
-        startTime.getMinutes(),
-        0,
-        0,
-      );
-
-      const endDateTime = new Date(today);
-      endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
-
-      // Check if user exists and is a doctor
       const user = await this.prisma.user.findUnique({
-        where: {
-          id: doctorId,
-          role: 'DOCTOR',
-        },
-        include: {
-          doctorProfile: true,
-        },
+        where: { id: doctorId, role: 'DOCTOR' },
+        include: { doctorProfile: true },
       });
+
       if (!user || !user.doctorProfile) {
         throw new NotFoundException(
           'Doctor profile not found or user is not a doctor',
         );
       }
 
-      // Prevent duplicate workDay for the same day
-      const existingDay = await this.prisma.workDay.findUnique({
-        where: {
-          doctorId_day: {
-            doctorId: user.doctorProfile.id,
-            day: weekDay,
-          },
-        },
-      });
-      if (existingDay) throw new BadRequestException('This day is already set');
+      // Reject duplicate days within the request
+      const requestedDayNumbers = dto.days.map((d) => d.day);
+      if (new Set(requestedDayNumbers).size !== requestedDayNumbers.length) {
+        throw new BadRequestException('Duplicate days in request');
+      }
 
-      // Create the work day
-      const workDay = await this.prisma.workDay.create({
-        data: {
+      // Validate time order for each entry
+      for (const item of dto.days) {
+        const startTime = parse(item.start, 'HH:mm', new Date());
+        const endTime = parse(item.end, 'HH:mm', new Date());
+        if (compareAsc(endTime, startTime) <= 0) {
+          throw new BadRequestException(
+            `End time must be after start time for ${weekDays[item.day]}`,
+          );
+        }
+      }
+
+      // Check for already-configured days
+      const requestedWeekDays = dto.days.map((d) => weekDays[d.day] as any);
+      const alreadySet = await this.prisma.workDay.findMany({
+        where: {
           doctorId: user.doctorProfile.id,
-          day: weekDay,
-          startTime: startDateTime,
-          endTime: endDateTime,
+          day: { in: requestedWeekDays },
         },
       });
+      if (alreadySet.length > 0) {
+        const names = alreadySet.map((d) => d.day).join(', ');
+        throw new BadRequestException(
+          `These days are already configured: ${names}`,
+        );
+      }
+
+      // Build DateTime objects and create all in a transaction
+      const doctorProfileId = user.doctorProfile.id;
+      const today = new Date();
+      const created = await this.prisma.$transaction(
+        dto.days.map((item) => {
+          const weekDay = weekDays[item.day] as any;
+          const startTime = parse(item.start, 'HH:mm', new Date());
+          const endTime = parse(item.end, 'HH:mm', new Date());
+
+          const startDateTime = new Date(today);
+          startDateTime.setHours(
+            startTime.getHours(),
+            startTime.getMinutes(),
+            0,
+            0,
+          );
+          const endDateTime = new Date(today);
+          endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
+
+          return this.prisma.workDay.create({
+            data: {
+              doctorId: doctorProfileId,
+              day: weekDay,
+              startTime: startDateTime,
+              endTime: endDateTime,
+            },
+          });
+        }),
+      );
 
       return {
-        message: 'Work day created successfully',
-        data: {
-          id: workDay.id,
-        },
+        message: 'Work days created successfully',
+        data: { id: created.map((wd) => wd.id).join(',') },
       };
     } catch (error) {
       catchServiceError(error);
@@ -426,17 +473,11 @@ export class DoctorService {
     }
   }
 
-  async updateWorkDay(
+  async updateWorkDays(
     doctorId: string,
-    dto: UpdateDoctorDto,
+    dto: CreateWorkDaysBulkDto,
   ): Promise<ResponseDto> {
     try {
-      const { day, start, end } = dto;
-
-      if (!day || !start || !end) {
-        throw new BadRequestException('Required values');
-      }
-      // Convert number to WeekDay enum (0=Sunday, 6=Saturday)
       const weekDays = [
         'SUNDAY',
         'MONDAY',
@@ -446,77 +487,83 @@ export class DoctorService {
         'FRIDAY',
         'SATURDAY',
       ];
-      const weekDay = weekDays[day] as any;
 
-      // Parse and validate time order
-      const startTime = parse(start, 'HH:mm', new Date());
-      const endTime = parse(end, 'HH:mm', new Date());
-      if (compareAsc(endTime, startTime) <= 0) {
-        throw new BadRequestException('End time must be after start time');
-      }
-
-      // Convert to DateTime objects for today (we only care about the time part)
-      const today = new Date();
-      const startDateTime = new Date(today);
-      startDateTime.setHours(
-        startTime.getHours(),
-        startTime.getMinutes(),
-        0,
-        0,
-      );
-
-      const endDateTime = new Date(today);
-      endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
-
-      // Check if user exists and is a doctor
       const user = await this.prisma.user.findUnique({
-        where: {
-          id: doctorId,
-          role: 'DOCTOR',
-        },
-        include: {
-          doctorProfile: true,
-        },
+        where: { id: doctorId, role: 'DOCTOR' },
+        include: { doctorProfile: true },
       });
+
       if (!user || !user.doctorProfile) {
         throw new NotFoundException(
           'Doctor profile not found or user is not a doctor',
         );
       }
 
-      // Find the existing work day to update
-      const existingDay = await this.prisma.workDay.findUnique({
-        where: {
-          doctorId_day: {
-            doctorId: user.doctorProfile.id,
-            day: weekDay,
-          },
-        },
-      });
-
-      if (!existingDay) {
-        throw new NotFoundException('Work day not found for this day');
+      // Reject duplicate days within the request
+      const requestedDayNumbers = dto.days.map((d) => d.day);
+      if (new Set(requestedDayNumbers).size !== requestedDayNumbers.length) {
+        throw new BadRequestException('Duplicate days in request');
       }
 
-      // Update the work day with new times
-      const updatedWorkDay = await this.prisma.workDay.update({
-        where: {
-          doctorId_day: {
-            doctorId: user.doctorProfile.id,
-            day: weekDay,
+      // Validate time order and existence for each entry upfront
+      for (const item of dto.days) {
+        const startTime = parse(item.start, 'HH:mm', new Date());
+        const endTime = parse(item.end, 'HH:mm', new Date());
+        if (compareAsc(endTime, startTime) <= 0) {
+          throw new BadRequestException(
+            `End time must be after start time for ${weekDays[item.day]}`,
+          );
+        }
+
+        const existing = await this.prisma.workDay.findUnique({
+          where: {
+            doctorId_day: {
+              doctorId: user.doctorProfile.id,
+              day: weekDays[item.day] as any,
+            },
           },
-        },
-        data: {
-          startTime: startDateTime,
-          endTime: endDateTime,
-        },
-      });
+        });
+        if (!existing) {
+          throw new NotFoundException(
+            `Work day not configured for ${weekDays[item.day]}`,
+          );
+        }
+      }
+
+      // Update all in a transaction
+      const doctorProfileId = user.doctorProfile.id;
+      const today = new Date();
+      const updated = await this.prisma.$transaction(
+        dto.days.map((item) => {
+          const weekDay = weekDays[item.day] as any;
+          const startTime = parse(item.start, 'HH:mm', new Date());
+          const endTime = parse(item.end, 'HH:mm', new Date());
+
+          const startDateTime = new Date(today);
+          startDateTime.setHours(
+            startTime.getHours(),
+            startTime.getMinutes(),
+            0,
+            0,
+          );
+          const endDateTime = new Date(today);
+          endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
+
+          return this.prisma.workDay.update({
+            where: {
+              doctorId_day: {
+                doctorId: doctorProfileId,
+                day: weekDay,
+              },
+            },
+            data: { startTime: startDateTime, endTime: endDateTime },
+          });
+        }),
+      );
 
       return {
-        message: 'Work day updated successfully',
-        data: {
-          id: updatedWorkDay.id,
-        },
+        message: 'Work days updated successfully',
+        data: { id: updated.map((wd) => wd.id).join(',') },
       };
     } catch (error) {
       catchServiceError(error);
