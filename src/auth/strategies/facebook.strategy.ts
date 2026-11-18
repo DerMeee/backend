@@ -9,8 +9,12 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
   constructor(private readonly configService: ConfigService) {
     super({
       clientID: configService.getOrThrow<string>('OAUTH_FACEBOOK_APP_ID'),
-      clientSecret: configService.getOrThrow<string>('OAUTH_FACEBOOK_APP_SECRET'),
-      callbackURL: configService.getOrThrow<string>('OAUTH_FACEBOOK_CALLBACK_URL'),
+      clientSecret: configService.getOrThrow<string>(
+        'OAUTH_FACEBOOK_APP_SECRET',
+      ),
+      callbackURL: configService.getOrThrow<string>(
+        'OAUTH_FACEBOOK_CALLBACK_URL',
+      ),
       profileFields: ['id', 'displayName', 'photos', 'email'],
       scope: ['email'],
     });

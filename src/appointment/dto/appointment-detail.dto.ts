@@ -5,7 +5,9 @@ class DoctorInfoDto {
   @ApiProperty({ description: 'Doctor ID' })
   id: string;
 
-  @ApiProperty({ description: 'Doctor account id (User.id), e.g. to start a chat' })
+  @ApiProperty({
+    description: 'Doctor account id (User.id), e.g. to start a chat',
+  })
   userId: string;
 
   @ApiProperty({ description: 'Doctor name' })
@@ -16,7 +18,9 @@ class PatientInfoDto {
   @ApiProperty({ description: 'Patient ID' })
   id: string;
 
-  @ApiProperty({ description: 'Patient account id (User.id), e.g. to start a chat' })
+  @ApiProperty({
+    description: 'Patient account id (User.id), e.g. to start a chat',
+  })
   userId: string;
 
   @ApiProperty({ description: 'Patient name' })

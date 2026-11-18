@@ -3,7 +3,10 @@ import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UploadPatientDocumentDto {
-  @ApiProperty({ enum: PatientDocumentType, description: 'Category of the file' })
+  @ApiProperty({
+    enum: PatientDocumentType,
+    description: 'Category of the file',
+  })
   @IsEnum(PatientDocumentType)
   documentType: PatientDocumentType;
 
