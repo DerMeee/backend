@@ -36,6 +36,26 @@ services:
     networks:
       - dermee-network
 
+  # New web app (DerMeee/web), cloned next to this repo as ../web. Replaces `frontend`.
+  # Deploy it alone, without touching api/postgres:
+  #   docker compose up -d --build --no-deps web
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Baked into the browser bundle at build time (same-origin API prefix proxied by Nginx).
+        NEXT_PUBLIC_API_URL: ${WEB_PUBLIC_API_URL:-https://dermee.dz/api/v1}
+    container_name: dermee-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      # Loopback only: only the host Nginx needs to reach it.
+      - "127.0.0.1:${WEB_PORT:-3002}:3001"
+    networks:
+      - dermee-network
+
   # NestJS Application
   api:
     build:
