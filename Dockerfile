@@ -67,6 +67,11 @@ RUN chmod +x /app/docker-entrypoint.sh
 # Generate Prisma Client in production image
 RUN npx prisma generate
 
+# Writable folders for the app user. Mount volumes here so files survive redeploys:
+#   /app/uploads  public files (avatars, product images)
+#   /app/private  medical files, only served after a permission check
+RUN mkdir -p /app/uploads /app/private && chown -R nestjs:nodejs /app/uploads /app/private
+
 # Switch to non-root user
 USER nestjs
 

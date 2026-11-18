@@ -146,11 +146,10 @@ export class AuthController {
     this.redirectWithTokens(res, data);
   }
 
-  private redirectWithTokens(
-    res: Response,
-    data: LoginResponseDto,
-  ): void {
-    const base = this.configService.getOrThrow<string>('OAUTH_SUCCESS_REDIRECT');
+  private redirectWithTokens(res: Response, data: LoginResponseDto): void {
+    const base = this.configService.getOrThrow<string>(
+      'OAUTH_SUCCESS_REDIRECT',
+    );
     const url = new URL(base);
     url.searchParams.set('accessToken', data.accessToken);
     url.searchParams.set('refreshToken', data.refreshToken);

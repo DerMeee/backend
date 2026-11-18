@@ -1,9 +1,14 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AppointmentState, VisitMode } from '@prisma/client';
 
 class DoctorInfoDto {
   @ApiProperty({ description: 'Doctor ID' })
   id: string;
+
+  @ApiProperty({
+    description: 'Doctor account id (User.id), e.g. to start a chat',
+  })
+  userId: string;
 
   @ApiProperty({ description: 'Doctor name' })
   name: string;
@@ -12,6 +17,11 @@ class DoctorInfoDto {
 class PatientInfoDto {
   @ApiProperty({ description: 'Patient ID' })
   id: string;
+
+  @ApiProperty({
+    description: 'Patient account id (User.id), e.g. to start a chat',
+  })
+  userId: string;
 
   @ApiProperty({ description: 'Patient name' })
   name: string;
@@ -110,4 +120,23 @@ export class AppointmentDetailDto {
     example: 'https://meet.google.com/xxx-yyyy-zzz',
   })
   meetLink?: string | null;
+
+  @ApiProperty({
+    example: 'RSV-000123',
+    description: 'Human-friendly reservation reference',
+  })
+  reference: string;
+
+  @ApiProperty({ description: 'Last time the state changed' })
+  statusChangedAt: Date;
+
+  @ApiPropertyOptional({ nullable: true })
+  cancelReason?: string | null;
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Actions the current user can take now: doctorConfirm, reject, cancel, complete, noShow…',
+  })
+  allowedActions: string[];
 }

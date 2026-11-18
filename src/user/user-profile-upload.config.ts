@@ -45,7 +45,8 @@ export function createUserProfilePictureMulterOptions() {
       },
       filename: (_req, file, cb) => {
         const ext =
-          extname(file.originalname).toLowerCase() || extFromMime(file.mimetype);
+          extname(file.originalname).toLowerCase() ||
+          extFromMime(file.mimetype);
         cb(null, `profile${ext}`);
       },
     }),
@@ -69,6 +70,9 @@ export function createUserProfilePictureMulterOptions() {
   };
 }
 
-export function publicUserProfilePicturePath(userId: string, filename: string): string {
+export function publicUserProfilePicturePath(
+  userId: string,
+  filename: string,
+): string {
   return `/uploads/${SEGMENT}/${userId}/${filename}`;
 }

@@ -63,4 +63,13 @@ export class AppointmentResponseDto {
     example: 'https://meet.google.com/xxx-yyyy-zzz',
   })
   meetLink?: string | null;
+
+  @ApiProperty({
+    example: 'RSV-000123',
+    description: 'Human-friendly reservation reference',
+  })
+  reference: string;
+
+  @ApiProperty({ description: 'Last time the state changed' })
+  statusChangedAt: Date;
 }

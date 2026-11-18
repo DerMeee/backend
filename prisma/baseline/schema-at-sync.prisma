@@ -1,0 +1,369 @@
+// Snapshot of the schema that the two "sync" migrations produce (= what production
+// should look like after the old `prisma db push` updates). Used only for the one-time
+// drift check in ARCHITECTURE.md §14. Not used by `prisma generate`.
+
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum AppointmentState {
+  PENDING
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderState {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BARIDIMOB
+  CIB
+  CASH
+}
+
+enum WeekDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum ExceptionType {
+  CANCELLED
+  ADDED
+  CHANGED
+}
+
+enum VisitMode {
+  ONLINE
+  ONSITE
+}
+
+/// Category for files a patient uploads (prescriptions, labs, etc.).
+enum PatientDocumentType {
+  PRESCRIPTION
+  LAB_RESULT
+  MEDICAL_REPORT
+  INSURANCE
+  OTHER
+}
+
+// ------------------- USER & ADDRESS -------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phoneNumber  String?
+  /// Null when the user only signs in via OAuth (Google/Facebook).
+  passwordHash String?
+  googleId     String?  @unique
+  facebookId   String?  @unique
+  role         UserRole @default(PATIENT)
+  addressId    String?  @unique
+  address      Address? @relation(fields: [addressId], references: [id])
+
+  /// Public URL path or storage key for profile avatar (patients, doctors, admins).
+  profilePictureUrl String?
+
+  doctorProfile  Doctor?
+  patientProfile Patient?
+  messages       Message[] @relation("senderMessages")
+  received       Message[] @relation("receiverMessages")
+
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  street     String
+  city       String
+  state      String
+  postalCode String
+  country    String
+  validated  Boolean @default(false)
+
+  user      User?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------- DOCTOR / PATIENT -------------------
+
+model Doctor {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  user      User    @relation(fields: [userId], references: [id])
+  fees      Float
+  workYears Int
+  about     String?
+
+  workDays           WorkDay[]
+  appointments       Appointment[]
+  scheduleExceptions ScheduleException[]
+  leaves             DoctorLeave[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Patient {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  appointments Appointment[]
+  cart         Cart?
+  orders       Order[]
+  wishlist     Wishlist[]
+  documents    PatientDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Uploaded files tied to a patient (prescriptions, labs, insurance scans, etc.).
+model PatientDocument {
+  id        String @id @default(cuid())
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  /// URL or object key returned by your storage layer after upload.
+  fileUrl String
+  /// Original filename from the client (for display/download).
+  fileName String
+  mimeType String?
+
+  documentType PatientDocumentType @default(OTHER)
+  /// Optional short label shown in the UI (e.g. “Spring 2025 checkup”).
+  title String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+}
+
+// ------------------- APPOINTMENTS -------------------
+
+model Appointment {
+  id        String           @id @default(cuid())
+  doctorId  String
+  patientId String
+  type      String
+  visitMode VisitMode        @default(ONSITE)
+  state     AppointmentState @default(PENDING)
+  startAt   DateTime
+  endAt     DateTime
+
+  /// Set when an online visit is approved and a Google Calendar event with Meet is created
+  meetLink              String?
+  googleCalendarEventId String?
+
+  doctor  Doctor             @relation(fields: [doctorId], references: [id])
+  patient Patient            @relation(fields: [patientId], references: [id])
+  report  AppointmentReport?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Business rule (not DB-enforced):
+  /// Only a Patient can create an Appointment.
+  /// Only a Doctor can approve/reject appointments.
+}
+
+model AppointmentReport {
+  id            String      @id @default(cuid())
+  appointmentId String      @unique
+  description   String
+  type          String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------- WORKDAY -------------------
+
+model WorkDay {
+  id        String   @id @default(cuid())
+  doctorId  String
+  day       WeekDay
+  startTime DateTime
+  endTime   DateTime
+
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([doctorId, day])
+}
+
+// * defines temporary overrides (“not available on Oct 21”)
+// * avoids polluting your base schedule with ad-hoc entries. Keeps historical accuracy.
+// * we can support many types of exceptions (cancel, added, changed, etc.) easily.
+// * Base schedule is small (max 7 entries). Exceptions can grow large without affecting weekly logic.
+// * You can track who created the exception, why, when, etc.
+// * scalability
+model ScheduleException {
+  id        String        @id @default(uuid())
+  doctorId  String
+  doctor    Doctor        @relation(fields: [doctorId], references: [id])
+  date      DateTime
+  type      ExceptionType
+  start     String?
+  end       String?
+  reason    String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([doctorId, date]) // prevent multiple exceptions for same date
+}
+
+model DoctorLeave {
+  id        String   @id @default(cuid())
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  startDate DateTime
+  endDate   DateTime
+  reason    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------- CHAT & MESSAGES -------------------
+
+// ------------------- NOTIFICATIONS -------------------
+
+model Notification {
+  id      String  @id @default(cuid())
+  userId  String
+  content String
+  read    Boolean @default(false)
+
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ------------------- PRODUCTS / E-COMMERCE -------------------
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  brand       String?
+  price       Float
+  imageUrl    String?
+  category    String?
+  rating      Float   @default(0.0)
+
+  cartItems  CartItem[]
+  wishlist   Wishlist[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  patientId String     @unique
+  patient   Patient    @relation(fields: [patientId], references: [id])
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int    @default(1)
+
+  cart    Cart    @relation(fields: [cartId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+model Wishlist {
+  id        String @id @default(cuid())
+  patientId String
+  productId String
+
+  patient Patient @relation(fields: [patientId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([patientId, productId])
+}
+
+// ------------------- ORDERS -------------------
+
+model Order {
+  id        String        @id @default(cuid())
+  patientId String
+  payMethod PaymentMethod
+  state     OrderState    @default(PENDING)
+
+  patient Patient     @relation(fields: [patientId], references: [id])
+  items   OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrderItem {
+  id          String @id @default(cuid())
+  orderId     String
+  productId   String
+  productName String
+  unitPrice   Float
+  quantity    Int
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  content    String
+  senderId   String
+  receiverId String
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("senderMessages", fields: [senderId], references: [id])
+  receiver User @relation("receiverMessages", fields: [receiverId], references: [id])
+
+  @@index([receiverId])
+  @@index([senderId])
+}

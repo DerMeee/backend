@@ -10,9 +10,9 @@ import {
   ParseUUIDPipe,
   UseGuards,
   Res,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
-import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { GetDoctorsQueryDto } from './dto/get-doctors-query.dto';
 import { DoctorResponseDto } from './dto/doctor-response.dto';
 import { GetDoctorScheduleDto } from './dto/get-doctor-schedule.dto';
@@ -35,7 +35,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-aut.guard';
 import { AuthorizationGuard } from '../auth/guards/authorization.guard';
 import { CurrentUser } from '../auth/decorator/current-user.decorator';
 import { Permissions } from '../auth/decorator/require-permission.decorator';
-import { CreateWorkDayDto } from './dto/create-work-day.dto';
+import { CreateWorkDaysBulkDto } from './dto/create-work-days-bulk.dto';
+import {
+  WorkDayResponseDto,
+  WorkDaysListResponseDto,
+} from './dto/work-day-response.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateDoctorLeaveDto } from './dto/create-doctor-leave.dto';
 import { DoctorLeaveResponseDto } from './dto/doctor-leave-response.dto';
@@ -52,7 +56,9 @@ import { UserPayload } from '../auth/dto/user-payload.dto';
   DoctorResponseDto,
   PaginatedResponseDto,
   DoctorScheduleResponseDto,
-  CreateWorkDayDto,
+  CreateWorkDaysBulkDto,
+  WorkDayResponseDto,
+  WorkDaysListResponseDto,
   CreateDoctorLeaveDto,
   DoctorLeaveResponseDto,
   CalendarResponseDto,
@@ -123,13 +129,48 @@ export class DoctorController {
     return this.patientService.listDocumentsForDoctor(user.userId, patientId);
   }
 
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'doctor', action: 'delete' }])
+  @Delete('schedule/workdays/:day')
+  @ApiOperation({
+    summary:
+      'Close a weekday in my weekly schedule (0 = Sunday … 6 = Saturday)',
+  })
+  removeWorkDay(
+    @CurrentUser() user: any,
+    @Param('day', ParseIntPipe) day: number,
+  ) {
+    return this.doctorService.removeWorkDay(user.id, day);
+  }
+
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'doctor', action: 'read' }])
+  @Get('schedule/workdays')
+  @ApiOperation({
+    summary: 'Get all configured work days for authenticated doctor',
+  })
+  @ApiOkResponse({
+    description: 'Work days retrieved successfully',
+    type: WorkDaysListResponseDto,
+  })
+  @ApiForbiddenResponse({ description: 'Forbidden - insufficient permissions' })
+  @ApiNotFoundResponse({ description: 'Doctor not found' })
+  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
+  getWorkDays(@CurrentUser() user: any): Promise<WorkDaysListResponseDto> {
+    return this.doctorService.getWorkDays(user.id);
+  }
+
   @Post('schedule')
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'create' }])
-  @ApiOperation({ summary: 'Create work schedule for authenticated doctor' })
+  @ApiOperation({
+    summary:
+      'Create work schedule for authenticated doctor (supports multiple days)',
+  })
   @ApiResponse({
     status: 201,
     description: 'Work schedule created successfully',
+    type: ResponseDto,
   })
   @ApiResponse({
     status: 400,
@@ -142,9 +183,9 @@ export class DoctorController {
   @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   createSchedule(
     @CurrentUser() user: any,
-    @Body() createWorkDayDto: CreateWorkDayDto,
+    @Body() dto: CreateWorkDaysBulkDto,
   ): Promise<ResponseDto> {
-    return this.doctorService.createWorkDay(user.id, createWorkDayDto);
+    return this.doctorService.createWorkDays(user.id, dto);
   }
 
   @ApiOperation({ summary: 'Get doctor schedule for a specific date' })
@@ -177,6 +218,10 @@ export class DoctorController {
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'update' }])
+  @ApiOperation({
+    summary:
+      'Update work schedule for authenticated doctor (supports multiple days)',
+  })
   @ApiOkResponse({
     description: 'Schedule updated successfully',
     type: ResponseDto,
@@ -186,9 +231,9 @@ export class DoctorController {
   @Patch('schedule')
   updateDoctorSchedule(
     @CurrentUser() user: any,
-    @Body() dto: UpdateDoctorDto,
+    @Body() dto: CreateWorkDaysBulkDto,
   ): Promise<ResponseDto> {
-    return this.doctorService.updateWorkDay(user.id, dto);
+    return this.doctorService.updateWorkDays(user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -238,7 +283,7 @@ export class DoctorController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'doctor', action: 'delete' }])
+  @Permissions([{ resource: 'doctor', action: 'read' }])
   @ApiOperation({
     summary: 'Get all exception dates for authenticated doctor',
   })

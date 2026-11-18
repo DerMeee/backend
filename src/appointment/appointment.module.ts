@@ -9,5 +9,6 @@ import { GoogleCalendarService } from '../google/google-calendar.service';
   imports: [PrismaModule],
   controllers: [AppointmentController],
   providers: [AppointmentService, DoctorService, GoogleCalendarService],
+  exports: [AppointmentService],
 })
 export class AppointmentModule {}

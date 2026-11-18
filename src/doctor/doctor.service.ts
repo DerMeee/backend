@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import {
   BadRequestException,
   ForbiddenException,
@@ -5,10 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
-import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { GetDoctorsQueryDto } from './dto/get-doctors-query.dto';
 import { DoctorResponseDto } from './dto/doctor-response.dto';
 import { PaginatedResponseDto } from '../appointment/dto/pagination-resp.dto';
+import { publicDoctorUserWhere } from './doctor-visibility';
+import { BLOCKING_STATES } from '../appointment/appointment-state';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   compareAsc,
@@ -20,7 +22,11 @@ import {
   getDay,
   addDays,
 } from 'date-fns';
-import { CreateWorkDayDto } from './dto/create-work-day.dto';
+import { CreateWorkDaysBulkDto } from './dto/create-work-days-bulk.dto';
+import {
+  WorkDayResponseDto,
+  WorkDaysListResponseDto,
+} from './dto/work-day-response.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateDoctorLeaveDto } from './dto/create-doctor-leave.dto';
 import { DoctorLeaveResponseDto } from './dto/doctor-leave-response.dto';
@@ -32,6 +38,50 @@ import { ResponseDto } from './dto/response.dto';
 import { GetSchedualExcepDto } from './dto/get-schedual-excep.dto';
 import { catchServiceError } from '../utils/catch-service-error';
 
+/**
+ * Work hours, slots and appointment times are exchanged in UTC ("HH:mm"), whatever the
+ * server time zone. Saved hours use the "HH:mm" digits as UTC (setUTCHours).
+ */
+function hhmmUtc(d: Date): string {
+  return d.toISOString().slice(11, 16);
+}
+
+/** Fields of a doctor that patients may see (no phone, no internal status). */
+const publicDoctorSelect = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  profilePictureUrl: true,
+  createdAt: true,
+  updatedAt: true,
+  address: { select: { state: true, city: true, street: true } },
+  doctorProfile: {
+    select: { specialty: true, fees: true, workYears: true, about: true },
+  },
+} satisfies Prisma.UserSelect;
+
+function toPublicDoctor(
+  d: Prisma.UserGetPayload<{ select: typeof publicDoctorSelect }>,
+): DoctorResponseDto {
+  return {
+    id: d.id,
+    name: d.name,
+    email: d.email,
+    role: d.role,
+    specialty: d.doctorProfile?.specialty ?? null,
+    fees: d.doctorProfile?.fees,
+    workYears: d.doctorProfile?.workYears,
+    about: d.doctorProfile?.about ?? null,
+    profilePictureUrl: d.profilePictureUrl,
+    wilaya: d.address?.state ?? null,
+    commune: d.address?.city ?? null,
+    street: d.address?.street ?? null,
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+  };
+}
+
 @Injectable()
 export class DoctorService {
   constructor(private readonly prisma: PrismaService) {}
@@ -39,59 +89,65 @@ export class DoctorService {
     return 'This action adds a new doctor';
   }
 
+  /** Public doctor directory: approved, active doctors only. */
   async findAll(
     query: GetDoctorsQueryDto,
   ): Promise<PaginatedResponseDto<DoctorResponseDto>> {
     try {
-      // Extract pagination parameters
       const page = query.page || 1;
       const limit = query.limit || 10;
-      const skip = (page - 1) * limit;
+      const and: Prisma.UserWhereInput[] = [publicDoctorUserWhere];
+      if (query.search?.trim()) {
+        const contains = {
+          contains: query.search.trim(),
+          mode: 'insensitive' as const,
+        };
+        and.push({
+          OR: [
+            { name: contains },
+            { doctorProfile: { is: { specialty: contains } } },
+          ],
+        });
+      }
+      if (query.specialty?.trim()) {
+        and.push({
+          doctorProfile: {
+            is: {
+              specialty: {
+                contains: query.specialty.trim(),
+                mode: 'insensitive',
+              },
+            },
+          },
+        });
+      }
+      if (query.wilaya?.trim()) {
+        and.push({
+          address: {
+            is: {
+              state: { contains: query.wilaya.trim(), mode: 'insensitive' },
+            },
+          },
+        });
+      }
+      const where: Prisma.UserWhereInput = { AND: and };
 
-      // Get total count for pagination metadata
-      const totalCount = await this.prisma.user.count({
-        where: { role: 'DOCTOR' },
-      });
-
-      // Get paginated doctors
-      const doctors = await this.prisma.user.findMany({
-        where: { role: 'DOCTOR' },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      });
-
-      // Calculate pagination metadata
-      const totalPages = Math.ceil(totalCount / limit);
-      const hasNextPage = page < totalPages;
-      const hasPrevPage = page > 1;
-
-      return {
-        data: doctors.map((doctor) => ({
-          id: doctor.id,
-          name: doctor.name,
-          email: doctor.email,
-          role: doctor.role,
-          createdAt: doctor.createdAt,
-          updatedAt: doctor.updatedAt,
-        })),
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          totalPages,
-          hasNext: hasNextPage,
-          hasPrev: hasPrevPage,
-        },
-      };
+      const [totalCount, doctors] = await Promise.all([
+        this.prisma.user.count({ where }),
+        this.prisma.user.findMany({
+          where,
+          select: publicDoctorSelect,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+      ]);
+      return new PaginatedResponseDto(
+        doctors.map(toPublicDoctor),
+        page,
+        limit,
+        totalCount,
+      );
     } catch (error) {
       catchServiceError(error);
     }
@@ -99,46 +155,99 @@ export class DoctorService {
 
   async findOne(id: string): Promise<DoctorResponseDto> {
     try {
-      const doctor = await this.prisma.user.findUnique({
-        where: {
-          id: id,
-          role: 'DOCTOR', // Ensure we only find doctors
-        },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-          updatedAt: true,
-          // Explicitly exclude sensitive fields like password
-        },
+      const doctor = await this.prisma.user.findFirst({
+        where: { id, ...publicDoctorUserWhere },
+        select: publicDoctorSelect,
       });
-
       if (!doctor) {
         throw new NotFoundException("Doctor doesn't exist");
       }
-
-      return {
-        id: doctor.id,
-        name: doctor.name,
-        email: doctor.email,
-        role: doctor.role,
-        createdAt: doctor.createdAt,
-        updatedAt: doctor.updatedAt,
-      };
+      return toPublicDoctor(doctor);
     } catch (error) {
       catchServiceError(error);
     }
   }
 
-  async createWorkDay(
+  /** Closes one weekday (0 = Sunday … 6 = Saturday) in the doctor's weekly schedule. */
+  async removeWorkDay(doctorUserId: string, day: number) {
+    try {
+      const weekDays = [
+        'SUNDAY',
+        'MONDAY',
+        'TUESDAY',
+        'WEDNESDAY',
+        'THURSDAY',
+        'FRIDAY',
+        'SATURDAY',
+      ] as const;
+      const weekDay = weekDays[day];
+      if (!weekDay)
+        throw new BadRequestException(
+          'day must be between 0 (Sunday) and 6 (Saturday)',
+        );
+      const doctor = await this.prisma.doctor.findUnique({
+        where: { userId: doctorUserId },
+        select: { id: true },
+      });
+      if (!doctor) throw new NotFoundException('Doctor profile not found');
+      const res = await this.prisma.workDay.deleteMany({
+        where: { doctorId: doctor.id, day: weekDay },
+      });
+      if (res.count === 0)
+        throw new NotFoundException('This day is not in your schedule');
+      return { message: 'Work day removed', data: { day: weekDay } };
+    } catch (error) {
+      catchServiceError(error);
+    }
+  }
+
+  async getWorkDays(doctorId: string): Promise<WorkDaysListResponseDto> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: doctorId, role: 'DOCTOR' },
+        include: {
+          doctorProfile: {
+            include: { workDays: true },
+          },
+        },
+      });
+
+      if (!user || !user.doctorProfile) {
+        throw new NotFoundException(
+          'Doctor profile not found or user is not a doctor',
+        );
+      }
+
+      const dayOrder = [
+        'SUNDAY',
+        'MONDAY',
+        'TUESDAY',
+        'WEDNESDAY',
+        'THURSDAY',
+        'FRIDAY',
+        'SATURDAY',
+      ];
+
+      const data: WorkDayResponseDto[] = user.doctorProfile.workDays
+        .sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day))
+        .map((wd) => ({
+          id: wd.id,
+          day: wd.day,
+          start: hhmmUtc(new Date(wd.startTime)),
+          end: hhmmUtc(new Date(wd.endTime)),
+        }));
+
+      return { data };
+    } catch (error) {
+      catchServiceError(error);
+    }
+  }
+
+  async createWorkDays(
     doctorId: string,
-    dto: CreateWorkDayDto,
+    dto: CreateWorkDaysBulkDto,
   ): Promise<ResponseDto> {
     try {
-      const { day, start, end } = dto;
-      // Convert number to WeekDay enum (0=Sunday, 6=Saturday)
       const weekDays = [
         'SUNDAY',
         'MONDAY',
@@ -148,86 +257,102 @@ export class DoctorService {
         'FRIDAY',
         'SATURDAY',
       ];
-      const weekDay = weekDays[day] as
-        | 'SUNDAY'
-        | 'MONDAY'
-        | 'TUESDAY'
-        | 'WEDNESDAY'
-        | 'THURSDAY'
-        | 'FRIDAY'
-        | 'SATURDAY';
 
-      // Parse and validate time order
-      const startTime = parse(start, 'HH:mm', new Date());
-      const endTime = parse(end, 'HH:mm', new Date());
-      if (compareAsc(endTime, startTime) <= 0) {
-        throw new BadRequestException('End time must be after start time');
-      }
-
-      // Convert to DateTime objects for today (we only care about the time part)
-      const today = new Date();
-      const startDateTime = new Date(today);
-      startDateTime.setHours(
-        startTime.getHours(),
-        startTime.getMinutes(),
-        0,
-        0,
-      );
-
-      const endDateTime = new Date(today);
-      endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
-
-      // Check if user exists and is a doctor
       const user = await this.prisma.user.findUnique({
-        where: {
-          id: doctorId,
-          role: 'DOCTOR',
-        },
-        include: {
-          doctorProfile: true,
-        },
+        where: { id: doctorId, role: 'DOCTOR' },
+        include: { doctorProfile: true },
       });
+
       if (!user || !user.doctorProfile) {
         throw new NotFoundException(
           'Doctor profile not found or user is not a doctor',
         );
       }
 
-      // Prevent duplicate workDay for the same day
-      const existingDay = await this.prisma.workDay.findUnique({
-        where: {
-          doctorId_day: {
-            doctorId: user.doctorProfile.id,
-            day: weekDay,
-          },
-        },
-      });
-      if (existingDay) throw new BadRequestException('This day is already set');
+      // Reject duplicate days within the request
+      const requestedDayNumbers = dto.days.map((d) => d.day);
+      if (new Set(requestedDayNumbers).size !== requestedDayNumbers.length) {
+        throw new BadRequestException('Duplicate days in request');
+      }
 
-      // Create the work day
-      const workDay = await this.prisma.workDay.create({
-        data: {
+      // Validate time order for each entry
+      for (const item of dto.days) {
+        const startTime = parse(item.start, 'HH:mm', new Date());
+        const endTime = parse(item.end, 'HH:mm', new Date());
+        if (compareAsc(endTime, startTime) <= 0) {
+          throw new BadRequestException(
+            `End time must be after start time for ${weekDays[item.day]}`,
+          );
+        }
+      }
+
+      // Check for already-configured days
+      const requestedWeekDays = dto.days.map((d) => weekDays[d.day] as any);
+      const alreadySet = await this.prisma.workDay.findMany({
+        where: {
           doctorId: user.doctorProfile.id,
-          day: weekDay,
-          startTime: startDateTime,
-          endTime: endDateTime,
+          day: { in: requestedWeekDays },
         },
       });
+      if (alreadySet.length > 0) {
+        const names = alreadySet.map((d) => d.day).join(', ');
+        throw new BadRequestException(
+          `These days are already configured: ${names}`,
+        );
+      }
+
+      // Build DateTime objects and create all in a transaction
+      const doctorProfileId = user.doctorProfile.id;
+      const today = new Date();
+      const created = await this.prisma.$transaction(
+        dto.days.map((item) => {
+          const weekDay = weekDays[item.day] as any;
+          const startTime = parse(item.start, 'HH:mm', new Date());
+          const endTime = parse(item.end, 'HH:mm', new Date());
+
+          const startDateTime = new Date(today);
+          startDateTime.setUTCHours(
+            startTime.getHours(),
+            startTime.getMinutes(),
+            0,
+            0,
+          );
+          const endDateTime = new Date(today);
+          endDateTime.setUTCHours(
+            endTime.getHours(),
+            endTime.getMinutes(),
+            0,
+            0,
+          );
+
+          return this.prisma.workDay.create({
+            data: {
+              doctorId: doctorProfileId,
+              day: weekDay,
+              startTime: startDateTime,
+              endTime: endDateTime,
+            },
+          });
+        }),
+      );
 
       return {
-        message: 'Work day created successfully',
-        data: {
-          id: workDay.id,
-        },
+        message: 'Work days created successfully',
+        data: { id: created.map((wd) => wd.id).join(',') },
       };
     } catch (error) {
       catchServiceError(error);
     }
   }
 
+  /**
+   * Free slots for one day. `publicOnly` (patient-facing booking) refuses doctors that
+   * are not approved or are suspended; doctors reading their own schedule pass false.
+   */
   async getDoctorSchedule(
     doctorId: string,
     date: string,
+    publicOnly = false,
   ): Promise<{
     date: string;
     slots: string[];
@@ -236,10 +361,10 @@ export class DoctorService {
   }> {
     try {
       // Find the doctor with their work days
-      const doctor = await this.prisma.user.findUnique({
+      const doctor = await this.prisma.user.findFirst({
         where: {
           id: doctorId,
-          role: 'DOCTOR',
+          ...(publicOnly ? publicDoctorUserWhere : { role: 'DOCTOR' }),
         },
         include: {
           doctorProfile: {
@@ -378,9 +503,9 @@ export class DoctorService {
       const end = new Date(endTime);
 
       while (current < end) {
-        const timeString = current.toTimeString().slice(0, 5); // HH:MM format
+        const timeString = hhmmUtc(current);
         slots.push(timeString);
-        current.setMinutes(current.getMinutes() + slotDuration);
+        current.setUTCMinutes(current.getUTCMinutes() + slotDuration);
       }
 
       // Get existing appointments for this date to filter out booked slots
@@ -397,16 +522,15 @@ export class DoctorService {
             gte: startOfDay,
             lte: endOfDay,
           },
-          state: {
-            not: 'CANCELLED',
-          },
+          // Only reservations that occupy the slot (not cancelled/rejected/no-show/completed).
+          state: { in: BLOCKING_STATES },
         },
       });
 
       // Extract booked times and filter them out
       const bookedTimes = appointments.map((appointment) => {
         const appointmentTime = new Date(appointment.startAt);
-        return appointmentTime.toTimeString().slice(0, 5); // HH:MM format
+        return hhmmUtc(appointmentTime);
       });
 
       const availableSlots = slots.filter(
@@ -426,17 +550,11 @@ export class DoctorService {
     }
   }
 
-  async updateWorkDay(
+  async updateWorkDays(
     doctorId: string,
-    dto: UpdateDoctorDto,
+    dto: CreateWorkDaysBulkDto,
   ): Promise<ResponseDto> {
     try {
-      const { day, start, end } = dto;
-
-      if (!day || !start || !end) {
-        throw new BadRequestException('Required values');
-      }
-      // Convert number to WeekDay enum (0=Sunday, 6=Saturday)
       const weekDays = [
         'SUNDAY',
         'MONDAY',
@@ -446,77 +564,88 @@ export class DoctorService {
         'FRIDAY',
         'SATURDAY',
       ];
-      const weekDay = weekDays[day] as any;
 
-      // Parse and validate time order
-      const startTime = parse(start, 'HH:mm', new Date());
-      const endTime = parse(end, 'HH:mm', new Date());
-      if (compareAsc(endTime, startTime) <= 0) {
-        throw new BadRequestException('End time must be after start time');
-      }
-
-      // Convert to DateTime objects for today (we only care about the time part)
-      const today = new Date();
-      const startDateTime = new Date(today);
-      startDateTime.setHours(
-        startTime.getHours(),
-        startTime.getMinutes(),
-        0,
-        0,
-      );
-
-      const endDateTime = new Date(today);
-      endDateTime.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
-
-      // Check if user exists and is a doctor
       const user = await this.prisma.user.findUnique({
-        where: {
-          id: doctorId,
-          role: 'DOCTOR',
-        },
-        include: {
-          doctorProfile: true,
-        },
+        where: { id: doctorId, role: 'DOCTOR' },
+        include: { doctorProfile: true },
       });
+
       if (!user || !user.doctorProfile) {
         throw new NotFoundException(
           'Doctor profile not found or user is not a doctor',
         );
       }
 
-      // Find the existing work day to update
-      const existingDay = await this.prisma.workDay.findUnique({
-        where: {
-          doctorId_day: {
-            doctorId: user.doctorProfile.id,
-            day: weekDay,
-          },
-        },
-      });
-
-      if (!existingDay) {
-        throw new NotFoundException('Work day not found for this day');
+      // Reject duplicate days within the request
+      const requestedDayNumbers = dto.days.map((d) => d.day);
+      if (new Set(requestedDayNumbers).size !== requestedDayNumbers.length) {
+        throw new BadRequestException('Duplicate days in request');
       }
 
-      // Update the work day with new times
-      const updatedWorkDay = await this.prisma.workDay.update({
-        where: {
-          doctorId_day: {
-            doctorId: user.doctorProfile.id,
-            day: weekDay,
+      // Validate time order and existence for each entry upfront
+      for (const item of dto.days) {
+        const startTime = parse(item.start, 'HH:mm', new Date());
+        const endTime = parse(item.end, 'HH:mm', new Date());
+        if (compareAsc(endTime, startTime) <= 0) {
+          throw new BadRequestException(
+            `End time must be after start time for ${weekDays[item.day]}`,
+          );
+        }
+
+        const existing = await this.prisma.workDay.findUnique({
+          where: {
+            doctorId_day: {
+              doctorId: user.doctorProfile.id,
+              day: weekDays[item.day] as any,
+            },
           },
-        },
-        data: {
-          startTime: startDateTime,
-          endTime: endDateTime,
-        },
-      });
+        });
+        if (!existing) {
+          throw new NotFoundException(
+            `Work day not configured for ${weekDays[item.day]}`,
+          );
+        }
+      }
+
+      // Update all in a transaction
+      const doctorProfileId = user.doctorProfile.id;
+      const today = new Date();
+      const updated = await this.prisma.$transaction(
+        dto.days.map((item) => {
+          const weekDay = weekDays[item.day] as any;
+          const startTime = parse(item.start, 'HH:mm', new Date());
+          const endTime = parse(item.end, 'HH:mm', new Date());
+
+          const startDateTime = new Date(today);
+          startDateTime.setUTCHours(
+            startTime.getHours(),
+            startTime.getMinutes(),
+            0,
+            0,
+          );
+          const endDateTime = new Date(today);
+          endDateTime.setUTCHours(
+            endTime.getHours(),
+            endTime.getMinutes(),
+            0,
+            0,
+          );
+
+          return this.prisma.workDay.update({
+            where: {
+              doctorId_day: {
+                doctorId: doctorProfileId,
+                day: weekDay,
+              },
+            },
+            data: { startTime: startDateTime, endTime: endDateTime },
+          });
+        }),
+      );
 
       return {
-        message: 'Work day updated successfully',
-        data: {
-          id: updatedWorkDay.id,
-        },
+        message: 'Work days updated successfully',
+        data: { id: updated.map((wd) => wd.id).join(',') },
       };
     } catch (error) {
       catchServiceError(error);
@@ -712,8 +841,9 @@ export class DoctorService {
       const start = new Date(startDate);
       const end = new Date(endDate);
 
-      if (start >= end) {
-        throw new BadRequestException('End date must be after start date');
+      // A one-day leave has the same start and end date.
+      if (start > end) {
+        throw new BadRequestException('End date must not be before start date');
       }
 
       // Check for overlapping leaves
@@ -888,7 +1018,7 @@ export class DoctorService {
               leaves: true,
               appointments: {
                 where: {
-                  state: { not: 'CANCELLED' },
+                  state: { in: BLOCKING_STATES },
                 },
                 select: {
                   startAt: true,
@@ -937,10 +1067,17 @@ export class DoctorService {
 
         calendarDays.push(dayResult);
 
+        // dayResult.slots lists the FREE slots only, so capacity = free + booked, counted on every
+        // open day (fully booked days included).
+        const open =
+          dayResult.dayType === 'workday' ||
+          (dayResult.dayType === 'exception' && !!dayResult.workSchedule);
+        if (open) {
+          totalSlots += dayResult.slots.length + dayResult.bookedSlots.length;
+          bookedSlots += dayResult.bookedSlots.length;
+        }
         if (dayResult.available) {
           availableDays++;
-          totalSlots += dayResult.slots.length;
-          bookedSlots += dayResult.bookedSlots.length;
         } else {
           unavailableDays++;
         }
@@ -1072,8 +1209,8 @@ export class DoctorService {
     // Generate slots for regular work day
     const startTime = new Date(workDay.startTime);
     const endTime = new Date(workDay.endTime);
-    const startStr = format(startTime, 'HH:mm');
-    const endStr = format(endTime, 'HH:mm');
+    const startStr = hhmmUtc(startTime);
+    const endStr = hhmmUtc(endTime);
     const slots = this.generateTimeSlots(startStr, endStr);
 
     const bookedSlots = this.getBookedSlotsForDay(
@@ -1122,7 +1259,7 @@ export class DoctorService {
       })
       .map((apt) => {
         const aptTime = new Date(apt.startAt);
-        return format(aptTime, 'HH:mm');
+        return hhmmUtc(aptTime);
       });
   }
 
@@ -1142,7 +1279,7 @@ export class DoctorService {
               leaves: true,
               appointments: {
                 where: {
-                  state: { not: 'CANCELLED' },
+                  state: { in: BLOCKING_STATES },
                 },
                 include: {
                   patient: {

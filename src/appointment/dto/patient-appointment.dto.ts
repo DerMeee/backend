@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PatientAppointmentDto {
   @ApiProperty()
@@ -18,4 +18,13 @@ export class PatientAppointmentDto {
 
   @ApiProperty()
   type: string;
+
+  @ApiProperty({
+    example: 'RSV-000123',
+    description: 'Human-friendly reservation reference',
+  })
+  reference: string;
+
+  @ApiPropertyOptional({ enum: ['ONLINE', 'ONSITE'] })
+  visitMode?: string;
 }

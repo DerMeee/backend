@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -18,13 +19,27 @@ import type { OAuthUserProfile } from './types/oauth-profile.type';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma, UserRole, UserStatus } from '@prisma/client';
+import { joinName, splitName } from '../common/names';
+import {
+  NotificationsService,
+  NotificationType,
+} from '../notifications/notifications.service';
+import type { Notification } from '@prisma/client';
 
 const userLoginInclude = {
   address: true,
   patientProfile: { select: { id: true, createdAt: true } },
   doctorProfile: {
-    select: { id: true, fees: true, workYears: true, about: true },
+    select: {
+      id: true,
+      fees: true,
+      workYears: true,
+      about: true,
+      specialty: true,
+      approvalStatus: true,
+      rejectionReason: true,
+    },
   },
 } satisfies Prisma.UserInclude;
 
@@ -32,12 +47,16 @@ type UserWithLoginRelations = Prisma.UserGetPayload<{
   include: typeof userLoginInclude;
 }>;
 
+export const ACCOUNT_SUSPENDED_MESSAGE =
+  'This account is suspended. Please contact Dermee support.';
+
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async login(loginData: LoginDto): Promise<LoginResponseDto> {
@@ -61,6 +80,8 @@ export class AuthService {
       if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid credentials');
       }
+      // Checked after the password so the response doesn't reveal account state to strangers.
+      this.assertActive(user.status);
       const tokens = this.generateTokens(user);
       return {
         ...tokens,
@@ -95,6 +116,10 @@ export class AuthService {
       if (!user) {
         throw new UnauthorizedException('Invalid token');
       }
+      // Refresh tokens are stateless, so suspension must be checked here too.
+      if (user.status === UserStatus.SUSPENDED) {
+        throw new UnauthorizedException(ACCOUNT_SUSPENDED_MESSAGE);
+      }
 
       const accessToken = this.generateAccessToken(user);
       return { accessToken };
@@ -113,7 +138,18 @@ export class AuthService {
       }
 
       const hashed = await bcrypt.hash(data.password, 10);
+      const role = data.role ?? SignupRole.PATIENT;
+      const names =
+        data.firstName || data.lastName
+          ? {
+              firstName: data.firstName?.trim() || null,
+              lastName: data.lastName?.trim() || null,
+            }
+          : splitName(data.name);
+      const displayName =
+        data.name?.trim() || joinName(names.firstName, names.lastName);
 
+      let adminAlerts: Notification[] = [];
       const userId = await this.prisma.$transaction(async (tx) => {
         const addressProvided = Boolean(
           data.street &&
@@ -136,23 +172,34 @@ export class AuthService {
 
         const createdUser = await tx.user.create({
           data: {
-            name: data.name,
+            name: displayName,
+            firstName: names.firstName,
+            lastName: names.lastName,
             email: data.email,
             phoneNumber: data.phoneNumber,
             passwordHash: hashed,
-            role: (data.role ?? SignupRole.PATIENT) as any,
+            role: role as UserRole,
             addressId: address?.id,
           },
         });
 
-        if ((data.role ?? SignupRole.PATIENT) === SignupRole.DOCTOR) {
+        if (role === SignupRole.DOCTOR) {
+          // New doctors start PENDING: hidden from patients until an admin approves them.
           await tx.doctor.create({
             data: {
               userId: createdUser.id,
               fees: data.fees ?? 0,
               workYears: data.workYears ?? 0,
               about: data.about,
+              specialty: data.specialty?.trim() || null,
             },
+          });
+          adminAlerts = await this.notifications.notifyAdmins(tx, {
+            type: NotificationType.DOCTOR_PENDING_APPROVAL,
+            content: `New doctor registration awaiting approval: ${displayName}`,
+            entityType: 'User',
+            entityId: createdUser.id,
+            link: `/admin/doctors/${createdUser.id}`,
           });
         } else {
           await tx.patient.create({
@@ -161,11 +208,11 @@ export class AuthService {
             },
           });
         }
-        console.log('Created User:', createdUser);
 
         return createdUser.id;
       });
 
+      this.notifications.publish(adminAlerts);
       return this.buildLoginResponse(userId);
     } catch (error) {
       catchServiceError(error);
@@ -206,10 +253,12 @@ export class AuthService {
       }
 
       if (!user) {
+        const name = profile.name?.trim() || email.split('@')[0] || 'User';
         user = await this.prisma.$transaction(async (tx) => {
           const created = await tx.user.create({
             data: {
-              name: profile.name?.trim() || email.split('@')[0] || 'User',
+              name,
+              ...splitName(name),
               email,
               passwordHash: null,
               googleId:
@@ -223,6 +272,7 @@ export class AuthService {
         });
       }
 
+      this.assertActive(user.status);
       return this.buildLoginResponse(user.id);
     } catch (error) {
       catchServiceError(error);
@@ -241,6 +291,12 @@ export class AuthService {
       return this.mapToLoginUser(user);
     } catch (error) {
       catchServiceError(error);
+    }
+  }
+
+  private assertActive(status: UserStatus) {
+    if (status === UserStatus.SUSPENDED) {
+      throw new ForbiddenException(ACCOUNT_SUSPENDED_MESSAGE);
     }
   }
 
@@ -277,9 +333,12 @@ export class AuthService {
     return {
       id: user.id,
       name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       phoneNumber: user.phoneNumber,
       role: user.role,
+      status: user.status,
       profilePictureUrl: user.profilePictureUrl,
       address,
       patient:
@@ -296,18 +355,22 @@ export class AuthService {
               fees: user.doctorProfile.fees,
               workYears: user.doctorProfile.workYears,
               about: user.doctorProfile.about,
+              specialty: user.doctorProfile.specialty,
+              approvalStatus: user.doctorProfile.approvalStatus,
+              rejectionReason: user.doctorProfile.rejectionReason,
             }
           : undefined,
     };
   }
 
-  private generateTokens(user: any) {
+  private generateTokens(user: { id: string; role: UserRole }) {
     return {
       accessToken: this.generateAccessToken(user),
       refreshToken: this.generateRefreshToken(user),
     };
   }
-  private generateAccessToken(user: any): string {
+
+  private generateAccessToken(user: { id: string; role: UserRole }): string {
     const payload = {
       userId: user.id,
       role: user.role,
@@ -318,7 +381,8 @@ export class AuthService {
       expiresIn: '15m',
     });
   }
-  private generateRefreshToken(user: any): string {
+
+  private generateRefreshToken(user: { id: string; role: UserRole }): string {
     const payload = {
       userId: user.id,
       role: user.role,

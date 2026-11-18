@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
+import type { Request, Response } from 'express';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -12,6 +13,18 @@ import { HttpExceptionFilter } from './middlewares/http.exception.filter';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'debug', 'log', 'verbose', 'fatal'],
+  });
+
+  // Behind Nginx: trust the first proxy so req.ip is the client address (used in audit logs).
+  app.set('trust proxy', 1);
+
+  // Patient documents used to live in the public uploads folder. They are now served
+  // only by /files/patient-documents/:id after a permission check, so block the old path.
+  app.use('/uploads/patient-files', (_req: Request, res: Response) => {
+    res.status(404).json({
+      error: true,
+      responseBody: { statusCode: 404, message: 'Not Found' },
+    });
   });
 
   const uploadsRoot = join(process.cwd(), 'uploads');
