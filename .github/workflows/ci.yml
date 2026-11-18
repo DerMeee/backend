@@ -23,6 +23,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Lint and type-aware rules need the generated Prisma types (UserRole, Prisma.TransactionClient…).
+      # Without this step they resolve to `any` and ESLint fails.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
       - name: Lint
         run: npm run lint
 
