@@ -8,7 +8,10 @@ describe('MessagesGateway', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [MessagesGateway, MessagesService],
-    }).compile();
+    })
+      // Dependencies not listed above are replaced by empty mocks.
+      .useMocker(() => ({}))
+      .compile();
 
     gateway = module.get<MessagesGateway>(MessagesGateway);
   });

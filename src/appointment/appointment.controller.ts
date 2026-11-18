@@ -42,6 +42,7 @@ import {
 } from '@nestjs/swagger';
 import { PaginatedResponseDto } from './dto/pagination-resp.dto';
 import { ResponseDto } from './dto/response.dto';
+import { OutcomeNoteDto } from './dto/outcome-note.dto';
 import { GetDoctorScheduleDto } from 'src/doctor/dto/get-doctor-schedule.dto';
 import { DoctorScheduleResponseDto } from 'src/doctor/dto/doctor-schedule-response.dto';
 import { DoctorService } from 'src/doctor/doctor.service';
@@ -186,8 +187,13 @@ export class AppointmentController {
   update(
     @Param('id') id: string,
     @Body() updateAppointmentDto: UpdateAppointmentDto,
+    @CurrentUser() user: any,
   ): Promise<ResponseDto> {
-    return this.appointmentService.update(id, updateAppointmentDto);
+    return this.appointmentService.update(
+      id,
+      updateAppointmentDto,
+      user.userId,
+    );
   }
 
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
@@ -198,12 +204,63 @@ export class AppointmentController {
   @ApiNotFoundResponse({ description: 'Patient not found' })
   @ApiBadRequestResponse({ description: 'Bad Request' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
+  @ApiOperation({
+    summary: 'Cancel a reservation (patient or doctor, before the visit time)',
+    description:
+      'The reservation is kept with state CANCELLED (no longer deleted).',
+  })
+  @ApiQuery({ name: 'reason', required: false })
   @Delete(':id')
   cancel(
     @Param('id') id: string,
     @CurrentUser() user: any,
+    @Query('reason') reason?: string,
   ): Promise<ResponseDto> {
-    return this.appointmentService.cancel(id, user.userId);
+    return this.appointmentService.cancel(
+      id,
+      user.userId,
+      reason?.slice(0, 500),
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'appointments', action: 'update' }])
+  @Post(':id/complete')
+  @ApiOperation({
+    summary:
+      'Doctor marks a confirmed reservation as completed (after the visit time)',
+  })
+  complete(
+    @Param('id') id: string,
+    @Body() body: OutcomeNoteDto,
+    @CurrentUser() user: any,
+  ): Promise<AppointmentResponseDto> {
+    return this.appointmentService.recordOutcome(
+      id,
+      user.userId,
+      'complete',
+      body.note,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'appointments', action: 'update' }])
+  @Post(':id/no-show')
+  @ApiOperation({
+    summary:
+      'Doctor marks a confirmed reservation as no-show (after the visit time)',
+  })
+  noShow(
+    @Param('id') id: string,
+    @Body() body: OutcomeNoteDto,
+    @CurrentUser() user: any,
+  ): Promise<AppointmentResponseDto> {
+    return this.appointmentService.recordOutcome(
+      id,
+      user.userId,
+      'noShow',
+      body.note,
+    );
   }
 
   @ApiOperation({ summary: 'Get doctor schedule for a specific date' })
@@ -231,7 +288,7 @@ export class AppointmentController {
     @Param('id') id: string,
     @Query() query: GetDoctorScheduleDto,
   ): Promise<DoctorScheduleResponseDto> {
-    return this.doctorService.getDoctorSchedule(id, query.date);
+    return this.doctorService.getDoctorSchedule(id, query.date, true);
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
@@ -280,7 +337,7 @@ export class AppointmentController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'appointment', action: 'update' }])
+  @Permissions([{ resource: 'appointments', action: 'update' }])
   @Post(':id/reject')
   @ApiOperation({ summary: 'Reject a pending appointment' })
   @ApiParam({
@@ -324,7 +381,7 @@ export class AppointmentController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'appointment', action: 'update' }])
+  @Permissions([{ resource: 'appointments', action: 'update' }])
   @Put(':id/reschedule')
   @ApiOperation({ summary: 'Reschedule an appointment to a new date and time' })
   @ApiParam({

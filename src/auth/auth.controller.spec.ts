@@ -62,7 +62,7 @@ describe('AuthController', () => {
 
         const result = await controller.refreshToken(body);
 
-        expect(authService.refreshToken).toHaveBeenCalledWith('valid.token');
+        expect(authService.refreshToken).toHaveBeenCalledWith(body);
         expect(result).toEqual({ accessToken: 'new.access' });
       });
     });

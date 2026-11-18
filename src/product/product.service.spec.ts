@@ -7,7 +7,10 @@ describe('ProductService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [ProductService],
-    }).compile();
+    })
+      // Dependencies not listed above are replaced by empty mocks.
+      .useMocker(() => ({}))
+      .compile();
 
     service = module.get<ProductService>(ProductService);
   });

@@ -9,7 +9,10 @@ describe('DoctorController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DoctorController],
       providers: [DoctorService],
-    }).compile();
+    })
+      // Dependencies not listed above are replaced by empty mocks.
+      .useMocker(() => ({}))
+      .compile();
 
     controller = module.get<DoctorController>(DoctorController);
   });

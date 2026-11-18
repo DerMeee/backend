@@ -33,6 +33,54 @@ export class GoogleCalendarService {
     return this.oauth2Client !== null;
   }
 
+  /** Best effort: removes the event (and its Meet invitation). Never throws. */
+  async deleteEvent(eventId: string | null | undefined): Promise<void> {
+    if (!eventId || !this.oauth2Client) return;
+    try {
+      const calendar = google.calendar({
+        version: 'v3',
+        auth: this.oauth2Client,
+      });
+      await calendar.events.delete({
+        calendarId: this.calendarId,
+        eventId,
+        sendUpdates: 'all',
+      });
+    } catch (e) {
+      this.logger.warn(
+        `Could not delete calendar event ${eventId}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  /** Best effort: moves the event to new times (attendees are notified). Never throws. */
+  async moveEvent(
+    eventId: string | null | undefined,
+    startAt: Date,
+    endAt: Date,
+  ): Promise<void> {
+    if (!eventId || !this.oauth2Client) return;
+    try {
+      const calendar = google.calendar({
+        version: 'v3',
+        auth: this.oauth2Client,
+      });
+      await calendar.events.patch({
+        calendarId: this.calendarId,
+        eventId,
+        sendUpdates: 'all',
+        requestBody: {
+          start: { dateTime: startAt.toISOString(), timeZone: 'UTC' },
+          end: { dateTime: endAt.toISOString(), timeZone: 'UTC' },
+        },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `Could not move calendar event ${eventId}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
   /**
    * Creates a Calendar event with a Google Meet link (uses Calendar API + conferenceData).
    */

@@ -1,6 +1,13 @@
-import { IsOptional, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class GetDoctorsQueryDto {
   @IsOptional()
@@ -17,4 +24,22 @@ export class GetDoctorsQueryDto {
   @Max(100)
   @ApiProperty({ default: 10 })
   limit?: number = 10;
+
+  @ApiPropertyOptional({ description: 'Doctor name or specialty' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @ApiPropertyOptional({ example: 'Dermatology' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  specialty?: string;
+
+  @ApiPropertyOptional({ example: 'Alger' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  wilaya?: string;
 }

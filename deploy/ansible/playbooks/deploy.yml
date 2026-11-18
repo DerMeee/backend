@@ -63,11 +63,34 @@
         line: 'API_IMAGE_TAG={{ image_tag }}'
         create: false
 
-    - name: Pull images and recreate containers
+    - name: Pull images
       ansible.builtin.shell: |
         set -e
         cd {{ deploy_path }}
         docker compose -f {{ compose_file }} pull {{ compose_services | default('api') }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    # One-time baseline for a database that was managed with `prisma db push`.
+    # Marks migrations as applied WITHOUT running them. Only use after a backup and a
+    # drift check (see ARCHITECTURE.md, "Migration baseline"). Example:
+    #   -e "prisma_resolve_applied=['20261102000000_sync_add_pending_state','20261102000100_sync_db_push']"
+    - name: Mark migrations as already applied (baseline only)
+      ansible.builtin.shell: |
+        set -e
+        cd {{ deploy_path }}
+        docker compose -f {{ compose_file }} run --rm --no-deps --entrypoint sh api \
+          -c "npx prisma migrate resolve --applied {{ item }}"
+      args:
+        executable: /bin/bash
+      loop: '{{ prisma_resolve_applied | default([]) }}'
+      changed_when: true
+
+    - name: Recreate containers
+      ansible.builtin.shell: |
+        set -e
+        cd {{ deploy_path }}
         docker compose -f {{ compose_file }} up -d --remove-orphans
       args:
         executable: /bin/bash

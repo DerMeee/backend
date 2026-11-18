@@ -3,7 +3,12 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -48,6 +53,13 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: jwtMock },
         { provide: ConfigService, useValue: configMock },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyAdmins: jest.fn().mockResolvedValue([]),
+            publish: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -78,15 +90,28 @@ describe('AuthService', () => {
         password: 'pw',
       } as any);
 
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { email: 'john.doe@example.com' },
-      });
+      expect(prisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { email: 'john.doe@example.com' } }),
+      );
       expect(result.accessToken).toBe('token');
       expect(result.refreshToken).toBe('token');
       expect(result.user).toMatchObject({
         id: 'u_1',
         email: 'john.doe@example.com',
       });
+    });
+
+    it('refuses a suspended account after a correct password', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'u_1',
+        email: 'john.doe@example.com',
+        passwordHash: 'hash',
+        role: 'PATIENT',
+        status: 'SUSPENDED',
+      });
+      await expect(
+        service.login({ email: 'john.doe@example.com', password: 'pw' } as any),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('throws Unauthorized when user not found', async () => {
@@ -120,6 +145,17 @@ describe('AuthService', () => {
       expect(result.accessToken).toBe('token');
     });
 
+    it('refuses to refresh for a suspended account', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'u_1',
+        role: 'PATIENT',
+        status: 'SUSPENDED',
+      });
+      await expect(
+        service.refreshToken({ refreshToken: 'valid.token' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
     it('throws Unauthorized when refresh token is invalid', async () => {
       jwt.verify.mockImplementationOnce(() => {
         throw new Error('Invalid token');
@@ -141,10 +177,12 @@ describe('AuthService', () => {
 
       const result = await service.getUserById('u_1');
 
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { id: 'u_1' },
-        include: { address: true },
-      });
+      expect(prisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u_1' },
+          include: expect.objectContaining({ address: true }),
+        }),
+      );
       expect(result).toMatchObject({
         id: 'u_1',
         email: 'john.doe@example.com',

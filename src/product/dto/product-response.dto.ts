@@ -15,6 +15,12 @@ export class ProductImageDto {
 }
 
 export class ProductResponseDto {
+  @ApiProperty({ nullable: true, required: false })
+  sku?: string | null;
+
+  @ApiProperty({ description: 'False when stock is 0' })
+  inStock: boolean;
+
   @ApiProperty()
   id: string;
 

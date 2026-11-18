@@ -13,10 +13,16 @@ describe('AppointmentService', () => {
         { provide: PrismaService, useValue: {} },
         {
           provide: GoogleCalendarService,
-          useValue: { isConfigured: () => false, createEventWithMeetLink: jest.fn() },
+          useValue: {
+            isConfigured: () => false,
+            createEventWithMeetLink: jest.fn(),
+          },
         },
       ],
-    }).compile();
+    })
+      // Dependencies not listed above are replaced by empty mocks.
+      .useMocker(() => ({}))
+      .compile();
 
     service = module.get<AppointmentService>(AppointmentService);
   });

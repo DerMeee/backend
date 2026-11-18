@@ -5,8 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateProductDto } from './dto/create-product.dto';
-import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
 import { GetProductsQueryDto } from './dto/get-products-query.dto';
 import { AddProductImagesDto } from './dto/add-product-images.dto';
@@ -19,34 +17,7 @@ import { catchServiceError } from '../utils/catch-service-error';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── Product CRUD ────────────────────────────────────────────────────────────
-
-  async create(dto: CreateProductDto): Promise<ProductResponseDto> {
-    try {
-      const product = await this.prisma.product.create({
-        data: {
-          name: dto.name,
-          description: dto.description,
-          brand: dto.brand,
-          price: dto.price,
-          category: dto.category,
-          images: dto.images?.length
-            ? {
-                create: dto.images.map((url, i) => ({
-                  url,
-                  isPrimary: i === 0,
-                  order: i,
-                })),
-              }
-            : undefined,
-        },
-        include: { images: { orderBy: { order: 'asc' } } },
-      });
-      return this.toResponse(product);
-    } catch (error) {
-      catchServiceError(error);
-    }
-  }
+  // ── Shop listing (writes: AdminProductsService, audited) ─────────────────────
 
   async findAll(
     query: GetProductsQueryDto,
@@ -56,7 +27,8 @@ export class ProductService {
       const limit = query.limit || 10;
       const skip = (page - 1) * limit;
 
-      const where: any = {};
+      // Shop listing: published products only.
+      const where: any = { status: 'PUBLISHED' };
       if (query.category) where.category = query.category;
       if (query.search) {
         where.OR = [
@@ -96,46 +68,12 @@ export class ProductService {
 
   async findOne(id: string): Promise<ProductResponseDto> {
     try {
-      const product = await this.prisma.product.findUnique({
-        where: { id },
+      const product = await this.prisma.product.findFirst({
+        where: { id, status: 'PUBLISHED' },
         include: { images: { orderBy: { order: 'asc' } } },
       });
       if (!product) throw new NotFoundException('Product not found');
       return this.toResponse(product);
-    } catch (error) {
-      catchServiceError(error);
-    }
-  }
-
-  async update(id: string, dto: UpdateProductDto): Promise<ProductResponseDto> {
-    try {
-      const existing = await this.prisma.product.findUnique({ where: { id } });
-      if (!existing) throw new NotFoundException('Product not found');
-
-      const product = await this.prisma.product.update({
-        where: { id },
-        data: {
-          name: dto.name,
-          description: dto.description,
-          brand: dto.brand,
-          price: dto.price,
-          category: dto.category,
-        },
-        include: { images: { orderBy: { order: 'asc' } } },
-      });
-      return this.toResponse(product);
-    } catch (error) {
-      catchServiceError(error);
-    }
-  }
-
-  async remove(id: string): Promise<{ message: string; data: { id: string } }> {
-    try {
-      const existing = await this.prisma.product.findUnique({ where: { id } });
-      if (!existing) throw new NotFoundException('Product not found');
-
-      const product = await this.prisma.product.delete({ where: { id } });
-      return { message: 'Product deleted successfully', data: { id: product.id } };
     } catch (error) {
       catchServiceError(error);
     }
@@ -143,7 +81,10 @@ export class ProductService {
 
   // ── Image management ────────────────────────────────────────────────────────
 
-  async addImages(productId: string, dto: AddProductImagesDto): Promise<ProductResponseDto> {
+  async addImages(
+    productId: string,
+    dto: AddProductImagesDto,
+  ): Promise<ProductResponseDto> {
     try {
       const product = await this.prisma.product.findUnique({
         where: { id: productId },
@@ -151,7 +92,10 @@ export class ProductService {
       });
       if (!product) throw new NotFoundException('Product not found');
 
-      const maxOrder = product.images.reduce((m, img) => Math.max(m, img.order), -1);
+      const maxOrder = product.images.reduce(
+        (m, img) => Math.max(m, img.order),
+        -1,
+      );
       const hasPrimary = product.images.some((img) => img.isPrimary);
 
       await this.prisma.productImage.createMany({
@@ -178,7 +122,9 @@ export class ProductService {
     imageId: string,
   ): Promise<{ message: string }> {
     try {
-      const image = await this.prisma.productImage.findUnique({ where: { id: imageId } });
+      const image = await this.prisma.productImage.findUnique({
+        where: { id: imageId },
+      });
       if (!image || image.productId !== productId)
         throw new NotFoundException('Image not found');
 
@@ -208,7 +154,9 @@ export class ProductService {
     imageId: string,
   ): Promise<{ message: string }> {
     try {
-      const image = await this.prisma.productImage.findUnique({ where: { id: imageId } });
+      const image = await this.prisma.productImage.findUnique({
+        where: { id: imageId },
+      });
       if (!image || image.productId !== productId)
         throw new NotFoundException('Image not found');
 
@@ -251,7 +199,12 @@ export class ProductService {
         throw new ConflictException('You have already rated this product');
 
       const rating = await this.prisma.productRating.create({
-        data: { productId, patientId: patient.id, score: dto.score, review: dto.review },
+        data: {
+          productId,
+          patientId: patient.id,
+          score: dto.score,
+          review: dto.review,
+        },
         include: { patient: { include: { user: { select: { name: true } } } } },
       });
 
@@ -267,7 +220,9 @@ export class ProductService {
     query: { page?: number; limit?: number },
   ): Promise<PaginatedResponseDto<RatingResponseDto>> {
     try {
-      const product = await this.prisma.product.findUnique({ where: { id: productId } });
+      const product = await this.prisma.product.findUnique({
+        where: { id: productId },
+      });
       if (!product) throw new NotFoundException('Product not found');
 
       const page = query.page || 1;
@@ -278,7 +233,9 @@ export class ProductService {
         this.prisma.productRating.count({ where: { productId } }),
         this.prisma.productRating.findMany({
           where: { productId },
-          include: { patient: { include: { user: { select: { name: true } } } } },
+          include: {
+            patient: { include: { user: { select: { name: true } } } },
+          },
           orderBy: { createdAt: 'desc' },
           skip,
           take: limit,
@@ -309,7 +266,9 @@ export class ProductService {
     dto: CreateRatingDto,
   ): Promise<RatingResponseDto> {
     try {
-      const patient = await this.prisma.patient.findUnique({ where: { userId } });
+      const patient = await this.prisma.patient.findUnique({
+        where: { userId },
+      });
       if (!patient) throw new ForbiddenException('Patient profile not found');
 
       const existing = await this.prisma.productRating.findUnique({
@@ -335,7 +294,9 @@ export class ProductService {
     userId: string,
   ): Promise<{ message: string }> {
     try {
-      const patient = await this.prisma.patient.findUnique({ where: { userId } });
+      const patient = await this.prisma.patient.findUnique({
+        where: { userId },
+      });
       if (!patient) throw new ForbiddenException('Patient profile not found');
 
       const existing = await this.prisma.productRating.findUnique({
@@ -375,6 +336,8 @@ export class ProductService {
       brand: product.brand,
       price: product.price,
       category: product.category,
+      sku: product.sku ?? null,
+      inStock: (product.stock ?? 0) > 0,
       rating: product.rating,
       images: (product.images ?? []).map((img: any) => ({
         id: img.id,

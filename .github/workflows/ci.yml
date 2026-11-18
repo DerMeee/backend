@@ -34,3 +34,35 @@ jobs:
         env:
           # Prisma generate needs DATABASE_URL; dummy URL is fine for build
           DATABASE_URL: postgresql://user:pass@localhost:5432/db
+
+      - name: Unit tests
+        run: npm test
+
+  # Applies every migration to an empty database, then fails if the result
+  # differs from schema.prisma. Catches schema changes made without a migration.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Apply migrations to an empty database
+        run: npx prisma migrate deploy
+      - name: Check migrations match schema.prisma
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code

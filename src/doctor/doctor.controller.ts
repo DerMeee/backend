@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   UseGuards,
   Res,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
 import { GetDoctorsQueryDto } from './dto/get-doctors-query.dto';
@@ -35,7 +36,10 @@ import { AuthorizationGuard } from '../auth/guards/authorization.guard';
 import { CurrentUser } from '../auth/decorator/current-user.decorator';
 import { Permissions } from '../auth/decorator/require-permission.decorator';
 import { CreateWorkDaysBulkDto } from './dto/create-work-days-bulk.dto';
-import { WorkDayResponseDto, WorkDaysListResponseDto } from './dto/work-day-response.dto';
+import {
+  WorkDayResponseDto,
+  WorkDaysListResponseDto,
+} from './dto/work-day-response.dto';
 import { CreateExceptionDto } from './dto/create-exception.dto';
 import { CreateDoctorLeaveDto } from './dto/create-doctor-leave.dto';
 import { DoctorLeaveResponseDto } from './dto/doctor-leave-response.dto';
@@ -126,9 +130,25 @@ export class DoctorController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @Permissions([{ resource: 'doctor', action: 'delete' }])
+  @Delete('schedule/workdays/:day')
+  @ApiOperation({
+    summary:
+      'Close a weekday in my weekly schedule (0 = Sunday … 6 = Saturday)',
+  })
+  removeWorkDay(
+    @CurrentUser() user: any,
+    @Param('day', ParseIntPipe) day: number,
+  ) {
+    return this.doctorService.removeWorkDay(user.id, day);
+  }
+
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'read' }])
   @Get('schedule/workdays')
-  @ApiOperation({ summary: 'Get all configured work days for authenticated doctor' })
+  @ApiOperation({
+    summary: 'Get all configured work days for authenticated doctor',
+  })
   @ApiOkResponse({
     description: 'Work days retrieved successfully',
     type: WorkDaysListResponseDto,
@@ -144,7 +164,8 @@ export class DoctorController {
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'create' }])
   @ApiOperation({
-    summary: 'Create work schedule for authenticated doctor (supports multiple days)',
+    summary:
+      'Create work schedule for authenticated doctor (supports multiple days)',
   })
   @ApiResponse({
     status: 201,
@@ -198,7 +219,8 @@ export class DoctorController {
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'doctor', action: 'update' }])
   @ApiOperation({
-    summary: 'Update work schedule for authenticated doctor (supports multiple days)',
+    summary:
+      'Update work schedule for authenticated doctor (supports multiple days)',
   })
   @ApiOkResponse({
     description: 'Schedule updated successfully',
@@ -261,7 +283,7 @@ export class DoctorController {
   }
 
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'doctor', action: 'delete' }])
+  @Permissions([{ resource: 'doctor', action: 'read' }])
   @ApiOperation({
     summary: 'Get all exception dates for authenticated doctor',
   })

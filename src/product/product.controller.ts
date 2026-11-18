@@ -36,12 +36,18 @@ import { JwtAuthGuard } from '../auth/guards/jwt-aut.guard';
 import { AuthorizationGuard } from '../auth/guards/authorization.guard';
 import { Permissions } from '../auth/decorator/require-permission.decorator';
 import { CurrentUser } from '../auth/decorator/current-user.decorator';
+import { CurrentActor } from '../common/decorators/actor.decorator';
+import type { Actor } from '../common/request-user';
+import { AdminProductsService } from './admin-products.service';
 
 @ApiTags('products')
 @ApiExtraModels(ProductResponseDto, RatingResponseDto, PaginatedResponseDto)
 @Controller('product')
 export class ProductController {
-  constructor(private readonly productService: ProductService) {}
+  constructor(
+    private readonly productService: ProductService,
+    private readonly adminProducts: AdminProductsService,
+  ) {}
 
   // ── Listing & detail (public) ────────────────────────────────────────────────
 
@@ -49,13 +55,20 @@ export class ProductController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'category', required: false })
-  @ApiQuery({ name: 'search', required: false, description: 'Search by name or brand' })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search by name or brand',
+  })
   @ApiOkResponse({
     description: 'Paginated list of products',
     schema: {
       allOf: [{ $ref: getSchemaPath(PaginatedResponseDto) }],
       properties: {
-        data: { type: 'array', items: { $ref: getSchemaPath(ProductResponseDto) } },
+        data: {
+          type: 'array',
+          items: { $ref: getSchemaPath(ProductResponseDto) },
+        },
       },
     },
   })
@@ -86,8 +99,9 @@ export class ProductController {
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'products', action: 'create' }])
   @Post()
-  create(@Body() dto: CreateProductDto): Promise<ProductResponseDto> {
-    return this.productService.create(dto);
+  create(@Body() dto: CreateProductDto, @CurrentActor() actor: Actor) {
+    // Same audited path as POST /admin/products.
+    return this.adminProducts.create(dto, actor);
   }
 
   @ApiOperation({ summary: 'Update a product (Admin)' })
@@ -101,8 +115,9 @@ export class ProductController {
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
-  ): Promise<ProductResponseDto> {
-    return this.productService.update(id, dto);
+    @CurrentActor() actor: Actor,
+  ) {
+    return this.adminProducts.update(id, dto, actor);
   }
 
   @ApiOperation({ summary: 'Delete a product (Admin)' })
@@ -113,8 +128,8 @@ export class ProductController {
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'products', action: 'delete' }])
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.productService.remove(id);
+  remove(@Param('id') id: string, @CurrentActor() actor: Actor) {
+    return this.adminProducts.remove(id, actor);
   }
 
   // ── Image management (Admin) ──────────────────────────────────────────────────
@@ -142,10 +157,7 @@ export class ProductController {
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'products', action: 'update' }])
   @Delete(':id/images/:imageId')
-  removeImage(
-    @Param('id') id: string,
-    @Param('imageId') imageId: string,
-  ) {
+  removeImage(@Param('id') id: string, @Param('imageId') imageId: string) {
     return this.productService.removeImage(id, imageId);
   }
 
@@ -157,10 +169,7 @@ export class ProductController {
   @UseGuards(JwtAuthGuard, AuthorizationGuard)
   @Permissions([{ resource: 'products', action: 'update' }])
   @Patch(':id/images/:imageId/primary')
-  setPrimary(
-    @Param('id') id: string,
-    @Param('imageId') imageId: string,
-  ) {
+  setPrimary(@Param('id') id: string, @Param('imageId') imageId: string) {
     return this.productService.setPrimaryImage(id, imageId);
   }
 
@@ -171,7 +180,10 @@ export class ProductController {
     schema: {
       allOf: [{ $ref: getSchemaPath(PaginatedResponseDto) }],
       properties: {
-        data: { type: 'array', items: { $ref: getSchemaPath(RatingResponseDto) } },
+        data: {
+          type: 'array',
+          items: { $ref: getSchemaPath(RatingResponseDto) },
+        },
       },
     },
   })
@@ -223,10 +235,7 @@ export class ProductController {
   @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @UseGuards(JwtAuthGuard)
   @Delete(':id/ratings/me')
-  deleteRating(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-  ) {
+  deleteRating(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productService.deleteRating(id, user.userId);
   }
 }

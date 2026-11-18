@@ -87,6 +87,25 @@ export class SignupDto {
   @IsString()
   @ApiPropertyOptional({ example: 'Dermatologist with focus on aesthetics' })
   about?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @ApiPropertyOptional({ example: 'Dermatology', description: 'Doctor only' })
+  specialty?: string;
+
+  // Optional split name. When omitted, `name` is split on the first space.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  @ApiPropertyOptional({ example: 'John' })
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  @ApiPropertyOptional({ example: 'Doe' })
+  lastName?: string;
 }
 
 export class SignupResponseDto {

@@ -18,21 +18,60 @@ enum UserRole {
   ADMIN
 }
 
+/// Reservation lifecycle (see src/appointment/appointment-state.ts for who may move where):
+/// PENDING (waiting for the doctor) → CONFIRMED (by the doctor) → DERMEE_CONFIRMED (by Dermee)
+/// → COMPLETED | NO_SHOW. CANCELLED and REJECTED end it early.
 enum AppointmentState {
   PENDING
-  SCHEDULED
   CONFIRMED
+  DERMEE_CONFIRMED
   COMPLETED
+  CANCELLED
+  REJECTED
+  NO_SHOW
+}
+
+/// Order, payment and delivery are tracked independently (see src/orders/order-rules.ts).
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
   CANCELLED
 }
 
-enum OrderState {
+enum PaymentStatus {
   PENDING
   PAID
-  PROCESSING
-  SHIPPED
+  FAILED
+  REFUNDED
+}
+
+enum DeliveryStatus {
+  NOT_SHIPPED
+  SENT_TO_DELIVERY
   DELIVERED
-  CANCELLED
+}
+
+/// Which of the three order statuses an OrderStatusHistory row is about.
+enum OrderStatusField {
+  STATUS
+  PAYMENT
+  DELIVERY
+}
+
+/// UNPUBLISHED products are hidden from the shop; ARCHIVED ones are kept only for order history.
+enum ProductStatus {
+  PUBLISHED
+  UNPUBLISHED
+  ARCHIVED
+}
+
+enum StockMovementReason {
+  INITIAL
+  ADJUSTMENT
+  ORDER_PLACED
+  ORDER_RELEASED
+  RETURN
 }
 
 enum PaymentMethod {
@@ -62,6 +101,33 @@ enum VisitMode {
   ONSITE
 }
 
+/// Account access for every role. Doctor verification is tracked separately (DoctorApprovalStatus).
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/// Verification of a doctor account by Dermee. Only APPROVED doctors are visible and bookable.
+enum DoctorApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Which field an AccountStatusHistory row describes.
+enum AccountStatusField {
+  APPROVAL
+  STATUS
+}
+
+/// Category for files a doctor uploads for verification.
+enum DoctorDocumentType {
+  MEDICAL_LICENSE
+  DIPLOMA
+  ID_CARD
+  OTHER
+}
+
 /// Category for files a patient uploads (prescriptions, labs, etc.).
 enum PatientDocumentType {
   PRESCRIPTION
@@ -75,7 +141,10 @@ enum PatientDocumentType {
 
 model User {
   id           String   @id @default(cuid())
+  /// Full display name. Kept in sync with firstName + lastName.
   name         String
+  firstName    String?
+  lastName     String?
   email        String   @unique
   phoneNumber  String?
   /// Null when the user only signs in via OAuth (Google/Facebook).
@@ -89,21 +158,35 @@ model User {
   /// Public URL path or storage key for profile avatar (patients, doctors, admins).
   profilePictureUrl String?
 
+  status         UserStatus @default(ACTIVE)
+  suspendedAt    DateTime?
+  suspendReason  String?
+  /// Updated at most every few minutes by the JWT strategy.
+  lastActivityAt DateTime?
+
   doctorProfile  Doctor?
   patientProfile Patient?
   messages       Message[] @relation("senderMessages")
   received       Message[] @relation("receiverMessages")
 
   notifications Notification[]
+  statusHistory AccountStatusHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([role, createdAt])
+  @@index([status])
+  @@index([phoneNumber])
+  @@index([createdAt])
 }
 
 model Address {
   id         String  @id @default(cuid())
   street     String
+  /// Commune
   city       String
+  /// Wilaya
   state      String
   postalCode String
   country    String
@@ -112,6 +195,8 @@ model Address {
   user      User?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([state, city])
 }
 
 // ------------------- DOCTOR / PATIENT -------------------
@@ -123,14 +208,57 @@ model Doctor {
   fees      Float
   workYears Int
   about     String?
+  specialty String?
+
+  approvalStatus  DoctorApprovalStatus @default(PENDING)
+  /// When the latest approval/rejection decision was made, and by which admin (User.id).
+  approvedAt      DateTime?
+  approvedById    String?
+  rejectionReason String?
 
   workDays           WorkDay[]
   appointments       Appointment[]
   scheduleExceptions ScheduleException[]
   leaves             DoctorLeave[]
+  documents          DoctorDocument[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([approvalStatus])
+}
+
+/// Verification files (license, diploma...). Stored outside the public uploads folder.
+model DoctorDocument {
+  id           String             @id @default(cuid())
+  doctorId     String
+  doctor       Doctor             @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  /// Path relative to the private storage root.
+  storageKey   String
+  fileName     String
+  mimeType     String?
+  size         Int?
+  documentType DoctorDocumentType @default(OTHER)
+  title        String?
+  createdAt    DateTime           @default(now())
+
+  @@index([doctorId])
+}
+
+/// Every change of a user's account status or a doctor's approval status.
+model AccountStatusHistory {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  field     AccountStatusField
+  fromValue String?
+  toValue   String
+  /// Admin who made the change (User.id). No foreign key: history outlives accounts.
+  actorId   String?
+  reason    String?
+  createdAt DateTime           @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model Patient {
@@ -151,19 +279,21 @@ model Patient {
 
 /// Uploaded files tied to a patient (prescriptions, labs, insurance scans, etc.).
 model PatientDocument {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   patientId String
   patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  /// URL or object key returned by your storage layer after upload.
-  fileUrl String
+  /// API path the client uses to download the file (needs authentication).
+  fileUrl    String
+  /// Path relative to the private storage root. Null for files uploaded before private storage.
+  storageKey String?
   /// Original filename from the client (for display/download).
-  fileName String
-  mimeType String?
+  fileName   String
+  mimeType   String?
 
   documentType PatientDocumentType @default(OTHER)
   /// Optional short label shown in the UI (e.g. “Spring 2025 checkup”).
-  title String?
+  title        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -187,16 +317,54 @@ model Appointment {
   meetLink              String?
   googleCalendarEventId String?
 
-  doctor  Doctor             @relation(fields: [doctorId], references: [id])
-  patient Patient            @relation(fields: [patientId], references: [id])
-  report  AppointmentReport?
+  /// Human-friendly reference, shown as RSV-000123.
+  refNo           Int      @unique @default(autoincrement())
+  /// Last time the state changed (sortable "last status update").
+  statusChangedAt DateTime @default(now())
+  cancelledById   String?
+  cancelReason    String?
+
+  doctor     Doctor                     @relation(fields: [doctorId], references: [id])
+  patient    Patient                    @relation(fields: [patientId], references: [id])
+  report     AppointmentReport?
+  history    AppointmentStatusHistory[]
+  adminNotes AppointmentAdminNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// Business rule (not DB-enforced):
-  /// Only a Patient can create an Appointment.
-  /// Only a Doctor can approve/reject appointments.
+  @@index([state, startAt])
+  @@index([doctorId, startAt])
+  @@index([patientId])
+  @@index([createdAt])
+}
+
+/// Every state change of a reservation, with who did it.
+model AppointmentStatusHistory {
+  id            String            @id @default(cuid())
+  appointmentId String
+  appointment   Appointment       @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  fromState     AppointmentState?
+  toState       AppointmentState
+  /// User.id of the actor; null for the system (scheduled jobs).
+  actorId       String?
+  actorRole     String
+  note          String?
+  createdAt     DateTime          @default(now())
+
+  @@index([appointmentId, createdAt])
+}
+
+/// Internal follow-up notes written by Dermee staff. Never shown to doctors or patients.
+model AppointmentAdminNote {
+  id            String      @id @default(cuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  authorId      String
+  content       String
+  createdAt     DateTime    @default(now())
+
+  @@index([appointmentId, createdAt])
 }
 
 model AppointmentReport {
@@ -263,13 +431,26 @@ model DoctorLeave {
 // ------------------- NOTIFICATIONS -------------------
 
 model Notification {
-  id      String  @id @default(cuid())
+  id      String    @id @default(cuid())
   userId  String
   content String
-  read    Boolean @default(false)
+  read    Boolean   @default(false)
+  readAt  DateTime?
+
+  /// Machine-readable kind, e.g. RESERVATION_PENDING_DOCTOR, DOCTOR_APPROVED.
+  type       String  @default("GENERAL")
+  /// What the notification is about, so the UI can open it.
+  entityType String?
+  entityId   String?
+  link       String?
+  /// Stops the same alert being created twice for one user (scheduled checks re-run).
+  dedupeKey  String?
 
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, read, createdAt])
 }
 
 // ------------------- PRODUCTS / E-COMMERCE -------------------
@@ -283,14 +464,46 @@ model Product {
   category    String?
   rating      Float   @default(0.0)
 
-  images     ProductImage[]
-  cartItems  CartItem[]
-  wishlist   Wishlist[]
-  orderItems OrderItem[]
-  ratings    ProductRating[]
+  /// Product reference. Optional, unique when set.
+  sku               String?       @unique
+  /// Units available. Never negative (CHECK constraint + conditional updates).
+  stock             Int           @default(0)
+  /// Low-stock alert level; falls back to the defaultLowStockThreshold setting.
+  lowStockThreshold Int?
+  status            ProductStatus @default(UNPUBLISHED)
+  archivedAt        DateTime?
+
+  images         ProductImage[]
+  cartItems      CartItem[]
+  wishlist       Wishlist[]
+  orderItems     OrderItem[]
+  ratings        ProductRating[]
+  stockMovements StockMovement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([category])
+}
+
+/// Every change of Product.stock, with the reason and who/what caused it.
+model StockMovement {
+  id         String              @id @default(cuid())
+  productId  String
+  product    Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Positive = stock added, negative = stock removed.
+  delta      Int
+  stockAfter Int
+  reason     StockMovementReason
+  /// User.id of the admin, or the patient for order-related movements. No FK.
+  actorId    String?
+  orderId    String?
+  note       String?
+  createdAt  DateTime            @default(now())
+
+  @@index([productId, createdAt])
+  @@index([orderId])
 }
 
 model ProductImage {
@@ -300,7 +513,7 @@ model ProductImage {
   isPrimary Boolean @default(false)
   order     Int     @default(0)
 
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 }
@@ -312,8 +525,8 @@ model ProductRating {
   score     Int
   review    String?
 
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  patient   Patient @relation(fields: [patientId], references: [id])
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -358,15 +571,64 @@ model Wishlist {
 
 model Order {
   id        String        @id @default(cuid())
+  /// Human-friendly reference, shown as ORD-000045.
+  refNo     Int           @unique @default(autoincrement())
   patientId String
+  /// CASH = cash on delivery.
   payMethod PaymentMethod
-  state     OrderState    @default(PENDING)
 
-  patient Patient     @relation(fields: [patientId], references: [id])
+  status         OrderStatus    @default(PENDING)
+  paymentStatus  PaymentStatus  @default(PENDING)
+  deliveryStatus DeliveryStatus @default(NOT_SHIPPED)
+
+  /// Sum of item subtotals at order time.
+  totalAmount Float @default(0)
+
+  // Delivery address, copied at order time so later profile edits don't change past orders.
+  recipientName  String?
+  recipientPhone String?
+  wilaya         String?
+  commune        String?
+  addressLine    String?
+  deliveryNote   String?
+
+  deliveryCompany String?
+  trackingNumber  String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  paidAt          DateTime?
+  /// Reason given when the order was rejected or cancelled.
+  closeReason     String?
+
+  patient Patient              @relation(fields: [patientId], references: [id])
   items   OrderItem[]
+  history OrderStatusHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([paymentStatus])
+  @@index([deliveryStatus])
+  @@index([patientId, createdAt])
+  @@index([createdAt])
+  @@index([wilaya, commune])
+}
+
+/// Every change of an order's status, payment status or delivery status (and delivery updates).
+model OrderStatusHistory {
+  id        String           @id @default(cuid())
+  orderId   String
+  order     Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  field     OrderStatusField
+  fromValue String?
+  toValue   String
+  actorId   String?
+  actorRole String
+  note      String?
+  createdAt DateTime         @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 model OrderItem {
@@ -379,6 +641,9 @@ model OrderItem {
 
   order   Order   @relation(fields: [orderId], references: [id])
   product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
 }
 
 model Message {
@@ -393,4 +658,57 @@ model Message {
 
   @@index([receiverId])
   @@index([senderId])
+}
+
+// ------------------- ADMINISTRATION -------------------
+
+/// Append-only record of sensitive actions (admin decisions, status changes, exports, impersonation).
+/// actorId has no foreign key on purpose: logs must outlive the user rows they mention.
+model AuditLog {
+  id             String   @id @default(cuid())
+  /// Null when the system did the action (scheduled jobs).
+  actorId        String?
+  actorEmail     String?
+  /// Set when the action happened during an impersonation session.
+  impersonatorId String?
+  action         String
+  entityType     String
+  entityId       String?
+  before         Json?
+  after          Json?
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
+/// Admin-editable configuration (urgency thresholds, low-stock threshold...).
+model SystemSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+/// Read-only "view as user" sessions started by an administrator.
+/// The admin's own login is untouched; the session token is short-lived and refused for any write.
+model ImpersonationSession {
+  id           String    @id @default(cuid())
+  adminId      String
+  targetUserId String
+  reason       String?
+  startedAt    DateTime  @default(now())
+  expiresAt    DateTime
+  endedAt      DateTime?
+  /// Why it ended: EXITED (admin left), REPLACED (admin started another one), EXPIRED.
+  endReason    String?
+  ip           String?
+  userAgent    String?
+
+  @@index([adminId, startedAt])
+  @@index([targetUserId, startedAt])
 }

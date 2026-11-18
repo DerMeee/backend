@@ -9,8 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderStateDto } from './dto/update-order-state.dto';
+import { CancelOrderDto, CreateOrderDto } from './dto/create-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { PaginatedResponseDto } from '../appointment/dto/pagination-resp.dto';
 import {
@@ -28,23 +27,37 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-aut.guard';
-import { AuthorizationGuard } from '../auth/guards/authorization.guard';
-import { Permissions } from '../auth/decorator/require-permission.decorator';
 import { CurrentUser } from '../auth/decorator/current-user.decorator';
-import { OrderState } from '@prisma/client';
+import { AdminAccess } from '../auth/decorator/require-permission.decorator';
+import { AdminOrdersService } from './admin-orders.service';
+import { AdminOrdersQueryDto } from './dto/admin-order.dto';
 
+/**
+ * Patient checkout and order history. Admin order management lives under /admin/orders
+ * (GET /orders is kept as an alias of the admin list for existing clients).
+ */
 @ApiTags('orders')
 @ApiBearerAuth()
 @ApiExtraModels(OrderResponseDto, PaginatedResponseDto)
 @Controller('orders')
 export class OrderController {
-  constructor(private readonly orderService: OrderService) {}
+  constructor(
+    private readonly orderService: OrderService,
+    private readonly adminOrders: AdminOrdersService,
+  ) {}
 
   // ── Patient routes ────────────────────────────────────────────────────────────
 
-  @ApiOperation({ summary: 'Place an order from my current cart (Patient)' })
+  @ApiOperation({
+    summary: 'Place an order from my current cart (Patient)',
+    description:
+      'Reserves the stock immediately. Delivery fields left empty are filled from the profile.',
+  })
   @ApiCreatedResponse({ type: OrderResponseDto })
-  @ApiBadRequestResponse({ description: 'Cart is empty or validation error' })
+  @ApiBadRequestResponse({
+    description:
+      'Cart empty, item unavailable, not enough stock, or missing address',
+  })
   @ApiForbiddenResponse({ description: 'Patient profile not found' })
   @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @UseGuards(JwtAuthGuard)
@@ -63,26 +76,29 @@ export class OrderController {
     schema: {
       allOf: [{ $ref: getSchemaPath(PaginatedResponseDto) }],
       properties: {
-        data: { type: 'array', items: { $ref: getSchemaPath(OrderResponseDto) } },
+        data: {
+          type: 'array',
+          items: { $ref: getSchemaPath(OrderResponseDto) },
+        },
       },
     },
   })
-  @ApiForbiddenResponse({ description: 'Patient profile not found' })
-  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @UseGuards(JwtAuthGuard)
   @Get('me')
   getMyOrders(
-    @Query() query: { page?: number; limit?: number },
+    @Query('page') page: string,
+    @Query('limit') limit: string,
     @CurrentUser() user: any,
   ): Promise<PaginatedResponseDto<OrderResponseDto>> {
-    return this.orderService.getMyOrders(user.userId, query);
+    return this.orderService.getMyOrders(user.userId, {
+      page: Number(page),
+      limit: Number(limit),
+    });
   }
 
-  @ApiOperation({ summary: 'Get a specific order (Patient)' })
+  @ApiOperation({ summary: 'Get one of my orders (Patient)' })
   @ApiOkResponse({ type: OrderResponseDto })
   @ApiNotFoundResponse({ description: 'Order not found' })
-  @ApiForbiddenResponse({ description: 'Patient profile not found' })
-  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
   @UseGuards(JwtAuthGuard)
   @Get('me/:id')
   getOrder(
@@ -92,59 +108,31 @@ export class OrderController {
     return this.orderService.getOrderById(user.userId, id);
   }
 
-  @ApiOperation({ summary: 'Cancel a pending order (Patient)' })
+  @ApiOperation({
+    summary:
+      'Cancel my order while it is still pending (Patient). Stock is released.',
+  })
   @ApiOkResponse({ type: OrderResponseDto })
-  @ApiBadRequestResponse({ description: 'Order cannot be cancelled (not PENDING)' })
-  @ApiNotFoundResponse({ description: 'Order not found' })
-  @ApiForbiddenResponse({ description: 'Patient profile not found' })
-  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
+  @ApiBadRequestResponse({ description: 'Order is no longer pending' })
   @UseGuards(JwtAuthGuard)
   @Patch('me/:id/cancel')
   cancelOrder(
     @Param('id') id: string,
+    @Body() body: CancelOrderDto,
     @CurrentUser() user: any,
   ): Promise<OrderResponseDto> {
-    return this.orderService.cancelOrder(user.userId, id);
+    return this.orderService.cancelOrder(user.userId, id, body?.reason);
   }
 
-  // ── Admin routes ──────────────────────────────────────────────────────────────
+  // ── Admin alias ───────────────────────────────────────────────────────────────
 
-  @ApiOperation({ summary: 'Get all orders with optional state filter (Admin)' })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  @ApiQuery({ name: 'state', required: false, enum: OrderState })
-  @ApiOkResponse({
-    schema: {
-      allOf: [{ $ref: getSchemaPath(PaginatedResponseDto) }],
-      properties: {
-        data: { type: 'array', items: { $ref: getSchemaPath(OrderResponseDto) } },
-      },
-    },
+  @ApiOperation({
+    summary: 'All orders (Admin). Same as GET /admin/orders.',
+    deprecated: true,
   })
-  @ApiForbiddenResponse({ description: 'Admin access required' })
-  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
-  @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'orders', action: 'read' }])
+  @AdminAccess('orders', 'read')
   @Get()
-  getAllOrders(
-    @Query() query: { page?: number; limit?: number; state?: OrderState },
-  ): Promise<PaginatedResponseDto<OrderResponseDto>> {
-    return this.orderService.getAllOrders(query);
-  }
-
-  @ApiOperation({ summary: 'Update the state of an order (Admin)' })
-  @ApiOkResponse({ type: OrderResponseDto })
-  @ApiBadRequestResponse({ description: 'Cannot update cancelled order' })
-  @ApiNotFoundResponse({ description: 'Order not found' })
-  @ApiForbiddenResponse({ description: 'Admin access required' })
-  @ApiInternalServerErrorResponse({ description: 'Internal server error' })
-  @UseGuards(JwtAuthGuard, AuthorizationGuard)
-  @Permissions([{ resource: 'orders', action: 'update' }])
-  @Patch(':id/state')
-  updateState(
-    @Param('id') id: string,
-    @Body() dto: UpdateOrderStateDto,
-  ): Promise<OrderResponseDto> {
-    return this.orderService.updateOrderState(id, dto);
+  getAllOrders(@Query() query: AdminOrdersQueryDto) {
+    return this.adminOrders.list(query);
   }
 }

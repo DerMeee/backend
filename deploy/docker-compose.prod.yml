@@ -42,6 +42,10 @@ services:
     networks:
       - dermee-network
     entrypoint: ['/bin/sh', '/app/docker-entrypoint.sh']
+    volumes:
+      # Files must survive container recreation on each deploy
+      - api_uploads:/app/uploads
+      - api_private:/app/private
 
   frontend:
     image: ${DOCKER_REGISTRY}/dermeee-frontend:${FRONTEND_IMAGE_TAG}
@@ -59,6 +63,10 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  api_uploads:
+    driver: local
+  api_private:
     driver: local
 
 networks:

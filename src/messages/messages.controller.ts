@@ -76,6 +76,16 @@ export class MessagesController {
     return this.messagesService.findAll(receiverId, user);
   }
 
+  // Declared before ':id' so "conversations" isn't read as a message id.
+  @ApiOperation({
+    summary:
+      'My conversations: one row per person, with their name, role and the last message',
+  })
+  @Get('conversations')
+  conversations(@CurrentUser() user: UserPayload) {
+    return this.messagesService.conversations(user);
+  }
+
   @ApiOperation({ summary: 'Get a single message by ID' })
   @ApiParam({
     name: 'id',
@@ -90,8 +100,8 @@ export class MessagesController {
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiInternalServerErrorResponse({ description: 'Internal Server Error' })
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.messagesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.messagesService.findOne(id, user);
   }
 
   @ApiOperation({ summary: 'Update a message' })

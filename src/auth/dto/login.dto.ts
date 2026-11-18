@@ -10,13 +10,14 @@ import {
 export class LoginDto {
   @IsEmail({}, { message: 'invalid email format' })
   @MaxLength(50, { message: 'email can not be longer than 50 charaters' })
-  @MinLength(6, { message: 'email must be at least 12 characters long' })
+  @MinLength(6, { message: 'email must be at least 6 characters long' })
   @ApiProperty({ example: 'name@example.com' })
   email: string;
 
   @IsNotEmpty({ message: 'password is required' })
   @MinLength(6, { message: 'password must be at least 6 characters long' })
-  @MaxLength(15, { message: 'password can not be longer than 15 charaters' })
+  // Must accept every password signup and the admin CLI allow (up to 50 / any length >= 12).
+  @MaxLength(128, { message: 'password can not be longer than 128 characters' })
   @ApiProperty({ example: 'P@ssw0rd!' })
   password: string;
 }
@@ -72,6 +73,19 @@ export class DoctorLoginProfileDto {
 
   @ApiPropertyOptional({ nullable: true })
   about: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  specialty?: string | null;
+
+  @ApiProperty({
+    enum: ['PENDING', 'APPROVED', 'REJECTED'],
+    description:
+      'Only APPROVED doctors appear in search and can receive bookings. Show a "pending review" screen otherwise.',
+  })
+  approvalStatus: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  rejectionReason?: string | null;
 }
 
 export class UserLoginResponseDto {
@@ -89,6 +103,15 @@ export class UserLoginResponseDto {
 
   @ApiProperty({ enum: ['PATIENT', 'DOCTOR', 'ADMIN'] })
   role: string;
+
+  @ApiProperty({ enum: ['ACTIVE', 'SUSPENDED'] })
+  status: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  firstName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  lastName?: string | null;
 
   @ApiPropertyOptional({
     nullable: true,

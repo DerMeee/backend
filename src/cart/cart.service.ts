@@ -22,6 +22,19 @@ const PRODUCT_FIELDS = {
   images: { orderBy: { order: 'asc' as const }, take: 1 },
 };
 
+function assertAvailable(
+  product: { name: string; stock: number },
+  quantity: number,
+) {
+  if (product.stock <= 0)
+    throw new BadRequestException(`"${product.name}" is out of stock`);
+  if (quantity > product.stock) {
+    throw new BadRequestException(
+      `Only ${product.stock} unit(s) of "${product.name}" left`,
+    );
+  }
+}
+
 @Injectable()
 export class CartService {
   constructor(private readonly prisma: PrismaService) {}
@@ -95,13 +108,18 @@ export class CartService {
       const product = await this.prisma.product.findUnique({
         where: { id: dto.productId },
       });
-      if (!product) throw new NotFoundException('Product not found');
+      if (!product || product.status !== 'PUBLISHED')
+        throw new NotFoundException('Product not found');
 
       const cart = await this.getOrCreateCart(patient.id);
 
       const existing = await this.prisma.cartItem.findUnique({
-        where: { cartId_productId: { cartId: cart.id, productId: dto.productId } },
+        where: {
+          cartId_productId: { cartId: cart.id, productId: dto.productId },
+        },
       });
+      // Early, friendly check. The real guarantee is the stock reservation at checkout.
+      assertAvailable(product, (existing?.quantity ?? 0) + dto.quantity);
 
       if (existing) {
         await this.prisma.cartItem.update({
@@ -110,7 +128,11 @@ export class CartService {
         });
       } else {
         await this.prisma.cartItem.create({
-          data: { cartId: cart.id, productId: dto.productId, quantity: dto.quantity },
+          data: {
+            cartId: cart.id,
+            productId: dto.productId,
+            quantity: dto.quantity,
+          },
         });
       }
 
@@ -127,13 +149,20 @@ export class CartService {
   ): Promise<CartResponseDto> {
     try {
       const patient = await this.resolvePatient(userId);
-      const cart = await this.prisma.cart.findUnique({ where: { patientId: patient.id } });
+      const cart = await this.prisma.cart.findUnique({
+        where: { patientId: patient.id },
+      });
       if (!cart) throw new NotFoundException('Cart not found');
 
       const item = await this.prisma.cartItem.findUnique({
         where: { cartId_productId: { cartId: cart.id, productId } },
       });
       if (!item) throw new NotFoundException('Item not in cart');
+
+      const product = await this.prisma.product.findUnique({
+        where: { id: productId },
+      });
+      if (product) assertAvailable(product, dto.quantity);
 
       await this.prisma.cartItem.update({
         where: { id: item.id },
@@ -146,10 +175,15 @@ export class CartService {
     }
   }
 
-  async removeItem(userId: string, productId: string): Promise<CartResponseDto> {
+  async removeItem(
+    userId: string,
+    productId: string,
+  ): Promise<CartResponseDto> {
     try {
       const patient = await this.resolvePatient(userId);
-      const cart = await this.prisma.cart.findUnique({ where: { patientId: patient.id } });
+      const cart = await this.prisma.cart.findUnique({
+        where: { patientId: patient.id },
+      });
       if (!cart) throw new NotFoundException('Cart not found');
 
       const item = await this.prisma.cartItem.findUnique({
@@ -167,7 +201,9 @@ export class CartService {
   async clearCart(userId: string): Promise<{ message: string }> {
     try {
       const patient = await this.resolvePatient(userId);
-      const cart = await this.prisma.cart.findUnique({ where: { patientId: patient.id } });
+      const cart = await this.prisma.cart.findUnique({
+        where: { patientId: patient.id },
+      });
       if (!cart) return { message: 'Cart is already empty' };
 
       await this.prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
@@ -218,7 +254,9 @@ export class CartService {
     try {
       const patient = await this.resolvePatient(userId);
 
-      const product = await this.prisma.product.findUnique({ where: { id: productId } });
+      const product = await this.prisma.product.findUnique({
+        where: { id: productId },
+      });
       if (!product) throw new NotFoundException('Product not found');
 
       const exists = await this.prisma.wishlist.findUnique({

@@ -63,6 +63,10 @@ services:
     networks:
       - dermee-network
     entrypoint: ["/bin/sh", "/app/docker-entrypoint.sh"]
+    volumes:
+      # Files must survive container recreation on each deploy
+      - api_uploads:/app/uploads
+      - api_private:/app/private
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 || r.statusCode === 404 ? 0 : 1)})"]
       interval: 30s
@@ -72,6 +76,10 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  api_uploads:
+    driver: local
+  api_private:
     driver: local
 
 networks:

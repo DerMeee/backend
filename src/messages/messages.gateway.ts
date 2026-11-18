@@ -16,48 +16,67 @@ import { UserPayload } from 'src/auth/dto/user-payload.dto';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Inject, Logger, forwardRef } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
+import { UserStatus } from '@prisma/client';
+import { RealtimeService, userRoom } from '../realtime/realtime.service';
+import type { AccessTokenPayload } from '../auth/strategies/jwt.strategy';
 
+/**
+ * Chat + live notifications. Each socket joins `user:<id>`; services push to that room
+ * through RealtimeService.
+ */
 @WebSocketGateway()
 export class MessagesGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
-  private logger = new Logger();
+  private logger = new Logger(MessagesGateway.name);
   server: Server;
+
   constructor(
     private jwtService: JwtService,
-    @Inject(forwardRef(() => MessagesService))
     private messagesService: MessagesService,
     private prisma: PrismaService,
+    private realtime: RealtimeService,
   ) {}
 
   afterInit(server: Server) {
     this.server = server;
+    this.realtime.attach(server);
     this.logger.log('Gateway initialized');
   }
+
   async handleConnection(client: Socket) {
     try {
-      // Extract token from handshake auth (client can send { token: '...' }) or headers
       const token =
         client.handshake.auth?.token || this.extractTokenFromHeaders(client);
       if (!token) {
         client.disconnect(true);
         return;
       }
-      const payload = this.jwtService.verify(token, {
+      const payload = this.jwtService.verify<AccessTokenPayload>(token, {
         secret: process.env.JWT_SECRET,
       });
-      // Attach user info to socket
-      client.data.user = { userId: payload.userId, role: payload.role };
+      // Impersonation is read-only and HTTP-only: no chat sockets.
+      if (payload.imp) {
+        client.disconnect(true);
+        return;
+      }
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { id: true, role: true, status: true },
+      });
+      if (!user || user.status === UserStatus.SUSPENDED) {
+        client.disconnect(true);
+        return;
+      }
 
-      // Optionally: add to room for direct messages by user id
-      void client.join(this.getRoomName(payload.userId));
-      this.logger.log(
-        `Client connected: user ${payload.userId} socket ${client.id}`,
-      );
+      client.data.user = { userId: user.id, role: user.role };
+      void client.join(userRoom(user.id));
+      this.logger.log(`Client connected: user ${user.id} socket ${client.id}`);
     } catch (err) {
       this.logger.warn(
-        'Unauthorized socket connection attempt: ' + err.message,
+        'Unauthorized socket connection attempt: ' +
+          (err instanceof Error ? err.message : String(err)),
       );
       client.disconnect(true);
     }
@@ -65,10 +84,6 @@ export class MessagesGateway
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected ${client.id}`);
-  }
-
-  private getRoomName(userId: string) {
-    return `user:${userId}`;
   }
 
   private extractTokenFromHeaders(client: Socket): string | null {
@@ -93,8 +108,8 @@ export class MessagesGateway
   }
 
   @SubscribeMessage('findOneMessage')
-  findOne(@MessageBody() id: string) {
-    return this.messagesService.findOne(id);
+  findOne(@MessageBody() id: string, @CurrentUser() user: UserPayload) {
+    return this.messagesService.findOne(id, user);
   }
 
   @SubscribeMessage('updateMessage')

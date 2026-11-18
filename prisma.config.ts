@@ -6,11 +6,20 @@ import { defineConfig } from 'prisma/config';
 // so the datasource block is only added when the variable is present.
 // The application itself connects through the pg driver adapter in PrismaService.
 const databaseUrl = process.env.DATABASE_URL;
+// Optional empty database used by `migrate dev` / `migrate diff --from-migrations`.
+const shadowDatabaseUrl = process.env.SHADOW_DATABASE_URL;
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
   },
-  ...(databaseUrl ? { datasource: { url: databaseUrl } } : {}),
+  ...(databaseUrl
+    ? {
+        datasource: {
+          url: databaseUrl,
+          ...(shadowDatabaseUrl ? { shadowDatabaseUrl } : {}),
+        },
+      }
+    : {}),
 });
